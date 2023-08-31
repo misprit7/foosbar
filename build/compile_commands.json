@@ -1,0 +1,8 @@
+[
+{
+  "directory": "/home/xander/dev/foosball/build",
+  "command": "/sbin/c++  -isystem /usr/include/opencv4  -o CMakeFiles/main.dir/main.cpp.o -c /home/xander/dev/foosball/main.cpp",
+  "file": "/home/xander/dev/foosball/main.cpp",
+  "output": "CMakeFiles/main.dir/main.cpp.o"
+}
+]

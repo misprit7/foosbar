@@ -1,0 +1,7 @@
+#! /bin/bash
+rmmod ./xr_usb_serial_common.ko
+rmmod cdc-acm
+modprobe -r usbserial
+modprobe usbserial
+insmod ./xr_usb_serial_common.ko
+

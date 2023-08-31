@@ -1,0 +1,3 @@
+/home/xander/dev/foosball/build/CMakeFiles/main.dir
+/home/xander/dev/foosball/build/CMakeFiles/edit_cache.dir
+/home/xander/dev/foosball/build/CMakeFiles/rebuild_cache.dir
