@@ -137,7 +137,7 @@ int main( int argc, char** argv ){
 
 #endif
 
-    cv::VideoCapture cap("/dev/video2");
+    cv::VideoCapture cap(2);
 
     if (!cap.isOpened())
     {
