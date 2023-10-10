@@ -18,7 +18,7 @@ using namespace sFnd;
 
 #define ever ;;
 
-#define ACC_LIM_RPM_PER_SEC    1000
+#define ACC_LIM_RPM_PER_SEC    3000
 #define VEL_LIM_RPM            200
 
 #define HOMING_TIMEOUT 10000
@@ -97,6 +97,7 @@ int main( int argc, char** argv ){
         while (!linear_node.Motion.Homing.WasHomed()) {
             if (cp_mgr.TimeStampMsec() > timeout) {
                 printf("Homing failed!\n");
+                linear_node.EnableReq(false);
                 return -2;
             }
         }
@@ -117,6 +118,7 @@ int main( int argc, char** argv ){
     if (!cap.isOpened())
     {
         std::cerr << "Error: Couldn't open the camera." << std::endl;
+        linear_node.EnableReq(false);
         return -1;
     }
 
@@ -127,6 +129,7 @@ int main( int argc, char** argv ){
     if (!fs.isOpened())
     {
         std::cerr << "Failed to open calibration.yml" << std::endl;
+        linear_node.EnableReq(false);
         return -1;
     }
 
@@ -252,19 +255,23 @@ int main( int argc, char** argv ){
 
             // Send move
             /* linear_node.Motion.MoveWentDone(); // Clear move done register */
-            printf("Moving Node \t%i \n", 0);
 
-            int target_cnts = linear_max_cnts - (centroid.y / ballFrame.size().height)
-                    * (linear_max_cnts - linear_min_cnts);
+            /* int target_cnts = linear_max_cnts - (centroid.y / ballFrame.size().height) */
+            /*         * (linear_max_cnts - linear_min_cnts); */
+            /* target_cnts += (target_cnts-(linear_max_cnts-linear_min_cnts)/2.0)*((22.8+44.4)/22.2); */
+            int target_cnts = (linear_max_cnts+linear_min_cnts)/2.0 - ((centroid.y / ballFrame.size().height-1.0/2)
+                    * (linear_max_cnts - linear_min_cnts))*(22.8+44.4)/22.2;
+            /* printf("%f, %f\n", ((centroid.y / ballFrame.size().height-1.0/2)), ((centroid.y / ballFrame.size().height-1.0/2) * (linear_max_cnts - linear_min_cnts))*(22.8+44.4)/22.2); */
             if(abs(target_cnts-linear_pos_cnts) > 30){
                 double est_duration_ms = linear_node.Motion.MovePosnDurationMsec(abs(target_cnts-linear_pos_cnts));
                 linear_node.Motion.MovePosnStart(target_cnts, true);
                 printf("Target cnts: %d, estimated time: %f.\n", target_cnts, est_duration_ms);
-                timeout = cp_mgr.TimeStampMsec() + est_duration_ms + 100;
+                timeout = cp_mgr.TimeStampMsec() + est_duration_ms + 300;
 
                 while (!linear_node.Motion.MoveIsDone()) {
                     if (cp_mgr.TimeStampMsec() > timeout) {
                         printf("Error: Timed out waiting for move to complete\n");
+                        linear_node.EnableReq(false);
                         return -2;
                     }
                 }
