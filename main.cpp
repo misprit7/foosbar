@@ -1,9 +1,11 @@
 #include <cstddef>
 #include <opencv2/core/utility.hpp>
 #include <opencv2/imgproc.hpp>
+#include <opencv2/objdetect/aruco_detector.hpp>
 #include <opencv2/tracking.hpp>
 #include <opencv2/videoio.hpp>
 #include <opencv2/highgui.hpp>
+#include <opencv2/aruco.hpp>
 #include <iostream>
 #include <cstring>
 
@@ -16,9 +18,16 @@ using namespace sFnd;
 
 #define ACC_LIM_RPM_PER_SEC    10000
 #define VEL_LIM_RPM            200
-#define MOVE_DISTANCE_CNTS     -2300    
+#define MOVE_DISTANCE_CNTS     -2400    
 
 #define HOMING_TIMEOUT 10000
+
+void onLowHChange(int, void*) {}
+void onHighHChange(int, void*) {}
+void onLowSChange(int, void*) {}
+void onHighSChange(int, void*) {}
+void onLowVChange(int, void*) {}
+void onHighVChange(int, void*) {}
 
 
 int main( int argc, char** argv ){
@@ -26,8 +35,9 @@ int main( int argc, char** argv ){
     SysManager cp_mgr;
     std::vector<std::string> comHubPorts;
 
+#if 0
     try
-    { 
+    {
         // Identify hubs
         SysManager::FindComHubPorts(comHubPorts);
         printf("Found %zu SC Hubs\n", comHubPorts.size());
@@ -125,50 +135,77 @@ int main( int argc, char** argv ){
 
     cp_mgr.PortsClose(); 
 
-    return 0;
+#endif
 
-    /* // show help */
-    /* if(argc<2){ */
-    /*     cout<< */
-    /*         " Usage: tracker <video_name>\n" */
-    /*         " examples:\n" */
-    /*         " example_tracking_kcf Bolt/img/%04d.jpg\n" */
-    /*         " example_tracking_kcf faceocc2.webm\n" */
-    /*         << endl; */
-    /*     return 0; */
-    /* } */
-    /* // declares all required variables */
-    /* Rect roi; */
-    /* Mat frame; */
-    /* // create a tracker object */
-    /* cv::Ptr<Tracker> tracker = TrackerKCF::create(); */
-    /* // set input video */
-    /* std::string video = argv[1]; */
-    /* VideoCapture cap(video); */
-    /* // get bounding box */
-    /* cap >> frame; */
-    /* roi=selectROI("tracker",frame); */
-    /* //quit if ROI was not selected */
-    /* if(roi.width==0 || roi.height==0) */
-    /*     return 0; */
-    /* // initialize the tracker */
-    /* tracker->init(frame,roi); */
-    /* // perform the tracking process */
-    /* printf("Start the tracking process, press ESC to quit.\n"); */
-    /* for ( ;; ){ */
-    /*     // get frame from the video */
-    /*     cap >> frame; */
-    /*     // stop the program if no more images */
-    /*     if(frame.rows==0 || frame.cols==0) */
-    /*         break; */
-    /*     // update the tracking result */
-    /*     tracker->update(frame,roi); */
-    /*     // draw the tracked object */
-    /*     rectangle( frame, roi, Scalar( 255, 0, 0 ), 2, 1 ); */
-    /*     // show image with the tracked object */
-    /*     imshow("tracker",frame); */
-    /*     //quit on ESC button */
-    /*     if(waitKey(1)==27)break; */
-    /* } */
-    /* return 0; */
+    cv::VideoCapture cap("/dev/video2");
+
+    if (!cap.isOpened())
+    {
+        std::cerr << "Error: Couldn't open the camera." << std::endl;
+        return -1;
+    }
+
+    cv::aruco::Dictionary dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_4X4_50);
+
+    cv::namedWindow("Original", cv::WINDOW_AUTOSIZE);
+    cv::namedWindow("Thresholded", cv::WINDOW_AUTOSIZE);
+
+    int lowH = 8, highH = 22;
+    int lowS = 121, highS = 255;
+    int lowV = 92, highV = 255;
+
+    cv::createTrackbar("LowH", "Thresholded", &lowH, 180, onLowHChange);
+    cv::createTrackbar("LowS", "Thresholded", &lowS, 255, onLowSChange);
+    cv::createTrackbar("LowV", "Thresholded", &lowV, 255, onLowVChange);
+    cv::createTrackbar("HighH", "Thresholded", &highH, 180, onHighHChange);
+    cv::createTrackbar("HighS", "Thresholded", &highS, 255, onHighSChange);
+    cv::createTrackbar("HighV", "Thresholded", &highV, 255, onHighVChange);
+
+    while (true)
+    {
+        cv::Mat frame, hsvFrame, thresholdedFrame;
+
+        bool ret = cap.read(frame);
+        if (!ret)
+        {
+            std::cerr << "Error: Couldn't read a frame from the camera." << std::endl;
+            break;
+        }
+
+        // Fetching values directly from the trackbars inside the loop
+        lowH = cv::getTrackbarPos("LowH", "Thresholded");
+        highH = cv::getTrackbarPos("HighH", "Thresholded");
+        lowS = cv::getTrackbarPos("LowS", "Thresholded");
+        highS = cv::getTrackbarPos("HighS", "Thresholded");
+        lowV = cv::getTrackbarPos("LowV", "Thresholded");
+        highV = cv::getTrackbarPos("HighV", "Thresholded");
+
+        cv::cvtColor(frame, hsvFrame, cv::COLOR_BGR2HSV);
+        cv::inRange(hsvFrame, cv::Scalar(lowH, lowS, lowV), cv::Scalar(highH, highS, highV), thresholdedFrame);
+
+
+        // Detect the markers
+        std::vector<int> ids;
+        std::vector<std::vector<cv::Point2f>> corners;
+        cv::aruco::DetectorParameters detectorParams = cv::aruco::DetectorParameters();
+        /* cv::aruco::detectMarkers(frame, &dictionary, corners, ids); */
+        cv::aruco::ArucoDetector detector(dictionary, detectorParams);
+        detector.detectMarkers(frame, corners, ids);
+
+        if (ids.size() > 0) 
+        {
+            cv::aruco::drawDetectedMarkers(frame, corners, ids);
+        }
+
+        cv::imshow("Original", frame);
+        cv::imshow("Thresholded", thresholdedFrame);
+
+        if ((cv::waitKey(30) & 0xFF) == 'q') // Press any key to exit
+            break;
+    }
+
+    cap.release();
+    cv::destroyAllWindows();
+
+    return 0;
 }
