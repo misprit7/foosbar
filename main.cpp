@@ -18,11 +18,13 @@ using namespace sFnd;
 
 #define ever ;;
 
-#define ACC_LIM_RPM_PER_SEC    10000
+#define ACC_LIM_RPM_PER_SEC    1000
 #define VEL_LIM_RPM            200
-#define MOVE_DISTANCE_CNTS     -2400    
 
 #define HOMING_TIMEOUT 10000
+
+const int linear_min_cnts = -2400;
+const int linear_max_cnts = 0;
 
 const double play_height_cm = 68;
 const double play_width_cm = 116.6;
@@ -34,13 +36,11 @@ void onHighSChange(int, void*) {}
 void onLowVChange(int, void*) {}
 void onHighVChange(int, void*) {}
 
-
 int main( int argc, char** argv ){
 
     SysManager cp_mgr;
     std::vector<std::string> comHubPorts;
 
-#if 0
     // Identify hubs
     SysManager::FindComHubPorts(comHubPorts);
     printf("Found %zu SC Hubs\n", comHubPorts.size());
@@ -103,34 +103,13 @@ int main( int argc, char** argv ){
     }
 
     // Set motion parameters
-    linear_node.Motion.MoveWentDone(); // Clear move done register
     linear_node.AccUnit(INode::RPM_PER_SEC);
     linear_node.VelUnit(INode::RPM);
     linear_node.Motion.AccLimit = ACC_LIM_RPM_PER_SEC;
     linear_node.Motion.VelLimit = VEL_LIM_RPM;
 
-    // Send move
-    printf("Moving Node \t%i \n", 0);
-    linear_node.Motion.MovePosnStart(MOVE_DISTANCE_CNTS);
-    printf("%f estimated time.\n", linear_node.Motion.MovePosnDurationMsec(MOVE_DISTANCE_CNTS));
-    timeout = cp_mgr.TimeStampMsec() + linear_node.Motion.MovePosnDurationMsec(MOVE_DISTANCE_CNTS) + 100;
-
-    while (!linear_node.Motion.MoveIsDone()) {
-        if (cp_mgr.TimeStampMsec() > timeout) {
-            printf("Error: Timed out waiting for move to complete\n");
-            return -2;
-        }
-    }
-    printf("Node \t%i Move Done\n", 0);
-
-
-    // Disable motor
-    linear_node.EnableReq(false);
-
-
-    cp_mgr.PortsClose(); 
-
-#endif
+    // Linear node tracking
+    int linear_pos_cnts = 0; // Homing sets to 0
 
     // Open video capture
     cv::VideoCapture cap(2);
@@ -174,6 +153,7 @@ int main( int argc, char** argv ){
     cv::createTrackbar("HighS", "Thresholded", &highS, 255, onHighSChange);
     cv::createTrackbar("HighV", "Thresholded", &highV, 255, onHighVChange);
 
+    // Tracks current guess of where play area is based on fiducials
     std::vector<cv::Point2f> play_area = {{0,0},{0,0},{0,0},{0,0}};
 
     for(ever)
@@ -269,6 +249,28 @@ int main( int argc, char** argv ){
             cv::Moments m = cv::moments(contours[largestContourIdx]);
             cv::Point2f centroid(m.m10/m.m00, m.m01/m.m00);
             cv::circle(ballFrameClr, centroid, 10, cv::Scalar(0, 0, 255), -1);
+
+            // Send move
+            /* linear_node.Motion.MoveWentDone(); // Clear move done register */
+            printf("Moving Node \t%i \n", 0);
+
+            int target_cnts = linear_max_cnts - (centroid.y / ballFrame.size().height)
+                    * (linear_max_cnts - linear_min_cnts);
+            if(abs(target_cnts-linear_pos_cnts) > 30){
+                double est_duration_ms = linear_node.Motion.MovePosnDurationMsec(abs(target_cnts-linear_pos_cnts));
+                linear_node.Motion.MovePosnStart(target_cnts, true);
+                printf("Target cnts: %d, estimated time: %f.\n", target_cnts, est_duration_ms);
+                timeout = cp_mgr.TimeStampMsec() + est_duration_ms + 100;
+
+                while (!linear_node.Motion.MoveIsDone()) {
+                    if (cp_mgr.TimeStampMsec() > timeout) {
+                        printf("Error: Timed out waiting for move to complete\n");
+                        return -2;
+                    }
+                }
+                printf("Node \t%i Move Done\n", 0);
+                linear_pos_cnts = target_cnts;
+            }
         }
 
         cv::imshow("Original", transformedFrame);
@@ -281,6 +283,10 @@ int main( int argc, char** argv ){
 
     cap.release();
     cv::destroyAllWindows();
+
+    // Close motors
+    linear_node.EnableReq(false);
+    cp_mgr.PortsClose(); 
 
     return 0;
 }
