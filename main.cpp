@@ -41,102 +41,92 @@ int main( int argc, char** argv ){
     std::vector<std::string> comHubPorts;
 
 #if 0
-    try
-    {
-        // Identify hubs
-        SysManager::FindComHubPorts(comHubPorts);
-        printf("Found %zu SC Hubs\n", comHubPorts.size());
+    // Identify hubs
+    SysManager::FindComHubPorts(comHubPorts);
+    printf("Found %zu SC Hubs\n", comHubPorts.size());
 
-        // Find available ports
-        size_t portCount = 0;
-        for (portCount = 0; portCount < comHubPorts.size() && portCount < NET_CONTROLLER_MAX; portCount++) {
-            cp_mgr.ComHubPort(portCount, comHubPorts[portCount].c_str());
-        }
-
-        if (portCount < 0) {
-            printf("Unable to locate SC hub port\n");
-            return -1;
-        }
-
-        // Open ports (hubs)
-        cp_mgr.PortsOpen(portCount);
-
-        IPort &hub0 = cp_mgr.Ports(0);
-        printf(" Port[%d]: state=%d, nodes=%d\n",
-            hub0.NetNumber(), hub0.OpenState(), hub0.NodeCount());
-
-        // Open nodes (motors)
-        INode &linear_node = hub0.Nodes(0);
-        linear_node.EnableReq(false);
-        cp_mgr.Delay(200);
-
-        printf("   Node[%d]: type=%d\n", 0, linear_node.Info.NodeType());
-        printf("            userID: %s\n", linear_node.Info.UserID.Value());
-        printf("        FW version: %s\n", linear_node.Info.FirmwareVersion.Value());
-        printf("          Serial #: %d\n", linear_node.Info.SerialNumber.Value());
-        printf("             Model: %s\n", linear_node.Info.Model.Value());
-
-        // Enable motor
-        linear_node.Status.AlertsClear();
-        linear_node.Motion.NodeStopClear();
-        linear_node.EnableReq(true);
-        printf("Node \t%i enabled\n", 0);
-
-        double timeout = cp_mgr.TimeStampMsec() + 2000;
-        while (!linear_node.Motion.IsReady()) {
-            if (cp_mgr.TimeStampMsec() > timeout) {
-                printf("Error: Timed out waiting for Node %d to enable\n", 0);
-                return -2;
-            }
-        }
-
-        // Homing
-        if (linear_node.Motion.Homing.HomingValid()){
-            linear_node.Motion.Homing.Initiate();
-
-            timeout = cp_mgr.TimeStampMsec() + HOMING_TIMEOUT;            
-
-            while (!linear_node.Motion.Homing.WasHomed()) {
-                if (cp_mgr.TimeStampMsec() > timeout) {
-                    printf("Homing failed!\n");
-                    return -2;
-                }
-            }
-        }
-
-        // Set motion parameters
-        linear_node.Motion.MoveWentDone(); // Clear move done register
-        linear_node.AccUnit(INode::RPM_PER_SEC);
-        linear_node.VelUnit(INode::RPM);
-        linear_node.Motion.AccLimit = ACC_LIM_RPM_PER_SEC;
-        linear_node.Motion.VelLimit = VEL_LIM_RPM;
-
-        // Send move
-        printf("Moving Node \t%i \n", 0);
-        linear_node.Motion.MovePosnStart(MOVE_DISTANCE_CNTS);
-        printf("%f estimated time.\n", linear_node.Motion.MovePosnDurationMsec(MOVE_DISTANCE_CNTS));
-        timeout = cp_mgr.TimeStampMsec() + linear_node.Motion.MovePosnDurationMsec(MOVE_DISTANCE_CNTS) + 100;
-
-        while (!linear_node.Motion.MoveIsDone()) {
-            if (cp_mgr.TimeStampMsec() > timeout) {
-                printf("Error: Timed out waiting for move to complete\n");
-                return -2;
-            }
-        }
-        printf("Node \t%i Move Done\n", 0);
-
-
-        // Disable motor
-        linear_node.EnableReq(false);
-
-
+    // Find available ports
+    size_t portCount = 0;
+    for (portCount = 0; portCount < comHubPorts.size() && portCount < NET_CONTROLLER_MAX; portCount++) {
+        cp_mgr.ComHubPort(portCount, comHubPorts[portCount].c_str());
     }
-    catch (mnErr& theErr)
-    {
-        printf("Caught error: addr=%d, err=0x%08x\nmsg=%s\n", theErr.TheAddr, theErr.ErrorCode, theErr.ErrorMsg);
+
+    if (portCount < 0) {
+        printf("Unable to locate SC hub port\n");
         return -1;
-
     }
+
+    // Open ports (hubs)
+    cp_mgr.PortsOpen(portCount);
+
+    IPort &hub0 = cp_mgr.Ports(0);
+    printf(" Port[%d]: state=%d, nodes=%d\n",
+        hub0.NetNumber(), hub0.OpenState(), hub0.NodeCount());
+
+    // Open nodes (motors)
+    INode &linear_node = hub0.Nodes(0);
+    linear_node.EnableReq(false);
+    cp_mgr.Delay(200);
+
+    printf("   Node[%d]: type=%d\n", 0, linear_node.Info.NodeType());
+    printf("            userID: %s\n", linear_node.Info.UserID.Value());
+    printf("        FW version: %s\n", linear_node.Info.FirmwareVersion.Value());
+    printf("          Serial #: %d\n", linear_node.Info.SerialNumber.Value());
+    printf("             Model: %s\n", linear_node.Info.Model.Value());
+
+    // Enable motor
+    linear_node.Status.AlertsClear();
+    linear_node.Motion.NodeStopClear();
+    linear_node.EnableReq(true);
+    printf("Node \t%i enabled\n", 0);
+
+    double timeout = cp_mgr.TimeStampMsec() + 2000;
+    while (!linear_node.Motion.IsReady()) {
+        if (cp_mgr.TimeStampMsec() > timeout) {
+            printf("Error: Timed out waiting for Node %d to enable\n", 0);
+            return -2;
+        }
+    }
+
+    // Homing
+    if (linear_node.Motion.Homing.HomingValid()){
+        linear_node.Motion.Homing.Initiate();
+
+        timeout = cp_mgr.TimeStampMsec() + HOMING_TIMEOUT;            
+
+        while (!linear_node.Motion.Homing.WasHomed()) {
+            if (cp_mgr.TimeStampMsec() > timeout) {
+                printf("Homing failed!\n");
+                return -2;
+            }
+        }
+    }
+
+    // Set motion parameters
+    linear_node.Motion.MoveWentDone(); // Clear move done register
+    linear_node.AccUnit(INode::RPM_PER_SEC);
+    linear_node.VelUnit(INode::RPM);
+    linear_node.Motion.AccLimit = ACC_LIM_RPM_PER_SEC;
+    linear_node.Motion.VelLimit = VEL_LIM_RPM;
+
+    // Send move
+    printf("Moving Node \t%i \n", 0);
+    linear_node.Motion.MovePosnStart(MOVE_DISTANCE_CNTS);
+    printf("%f estimated time.\n", linear_node.Motion.MovePosnDurationMsec(MOVE_DISTANCE_CNTS));
+    timeout = cp_mgr.TimeStampMsec() + linear_node.Motion.MovePosnDurationMsec(MOVE_DISTANCE_CNTS) + 100;
+
+    while (!linear_node.Motion.MoveIsDone()) {
+        if (cp_mgr.TimeStampMsec() > timeout) {
+            printf("Error: Timed out waiting for move to complete\n");
+            return -2;
+        }
+    }
+    printf("Node \t%i Move Done\n", 0);
+
+
+    // Disable motor
+    linear_node.EnableReq(false);
+
 
     cp_mgr.PortsClose(); 
 
@@ -249,9 +239,41 @@ int main( int argc, char** argv ){
         cv::cvtColor(transformedFrame, hsvFrame, cv::COLOR_BGR2HSV);
         cv::inRange(hsvFrame, cv::Scalar(lowH, lowS, lowV), cv::Scalar(highH, highS, highV), thresholdedFrame);
 
+        // Erode and dilate
+        cv::Mat ballFrame;
+        cv::Mat element = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3,3));
+        cv::erode(cv::Mat(thresholdedFrame, Rect(0,0,30*upscale,play_height_px)), ballFrame, element);
+        cv::dilate(ballFrame, ballFrame, element);
+
+        // Find contours
+        std::vector<std::vector<cv::Point>> contours;
+        cv::findContours(ballFrame, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+
+        // Find the largest contour
+        double maxArea = 0;
+        int largestContourIdx = -1;
+        for (int i = 0; i < contours.size(); i++) {
+            double area = cv::contourArea(contours[i]);
+            if (area > maxArea) {
+                maxArea = area;
+                largestContourIdx = i;
+            }
+        }
+
+        // Convert to color
+        cv::Mat ballFrameClr;
+        cv::cvtColor(ballFrame, ballFrameClr, cv::COLOR_GRAY2BGR);
+
+        // Calculate the centroid of the largest contour
+        if(largestContourIdx >= 0){
+            cv::Moments m = cv::moments(contours[largestContourIdx]);
+            cv::Point2f centroid(m.m10/m.m00, m.m01/m.m00);
+            cv::circle(ballFrameClr, centroid, 10, cv::Scalar(0, 0, 255), -1);
+        }
 
         cv::imshow("Original", transformedFrame);
         cv::imshow("Thresholded", thresholdedFrame);
+        cv::imshow("Ball area", ballFrameClr);
 
         if ((cv::waitKey(30) & 0xFF) == 'q') // Press any key to exit
             break;
