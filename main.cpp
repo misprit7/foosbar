@@ -6,6 +6,7 @@
 #include <opencv2/videoio.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/aruco.hpp>
+#include <opencv2/calib3d.hpp>
 #include <iostream>
 #include <cstring>
 
@@ -15,12 +16,16 @@ using namespace std;
 using namespace cv;
 using namespace sFnd;
 
+#define ever ;;
 
 #define ACC_LIM_RPM_PER_SEC    10000
 #define VEL_LIM_RPM            200
 #define MOVE_DISTANCE_CNTS     -2400    
 
 #define HOMING_TIMEOUT 10000
+
+const double play_height_cm = 68;
+const double play_width_cm = 116.6;
 
 void onLowHChange(int, void*) {}
 void onHighHChange(int, void*) {}
@@ -137,6 +142,7 @@ int main( int argc, char** argv ){
 
 #endif
 
+    // Open video capture
     cv::VideoCapture cap(2);
 
     if (!cap.isOpened())
@@ -145,14 +151,31 @@ int main( int argc, char** argv ){
         return -1;
     }
 
+    // Retrieve calibration parameters
+    cv::Mat cameraMatrix, distCoeffs;
+
+    cv::FileStorage fs("../assets/calibration/calibration.yml", cv::FileStorage::READ);
+    if (!fs.isOpened())
+    {
+        std::cerr << "Failed to open calibration.yml" << std::endl;
+        return -1;
+    }
+
+    fs["camera_matrix"] >> cameraMatrix;
+    fs["dist_coeff"] >> distCoeffs;
+
+    fs.release();
+
+    // Aruco symbols used
     cv::aruco::Dictionary dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_4X4_50);
 
+    // Make threshold window
     cv::namedWindow("Original", cv::WINDOW_AUTOSIZE);
     cv::namedWindow("Thresholded", cv::WINDOW_AUTOSIZE);
 
-    int lowH = 8, highH = 22;
-    int lowS = 121, highS = 255;
-    int lowV = 92, highV = 255;
+    int lowH = 10, highH = 20;
+    int lowS = 139, highS = 255;
+    int lowV = 92, highV = 221;
 
     cv::createTrackbar("LowH", "Thresholded", &lowH, 180, onLowHChange);
     cv::createTrackbar("LowS", "Thresholded", &lowS, 255, onLowSChange);
@@ -161,9 +184,11 @@ int main( int argc, char** argv ){
     cv::createTrackbar("HighS", "Thresholded", &highS, 255, onHighSChange);
     cv::createTrackbar("HighV", "Thresholded", &highV, 255, onHighVChange);
 
-    while (true)
+    std::vector<cv::Point2f> play_area = {{0,0},{0,0},{0,0},{0,0}};
+
+    for(ever)
     {
-        cv::Mat frame, hsvFrame, thresholdedFrame;
+        cv::Mat frame, flatFrame, hsvFrame, thresholdedFrame, transformedFrame;
 
         bool ret = cap.read(frame);
         if (!ret)
@@ -171,6 +196,13 @@ int main( int argc, char** argv ){
             std::cerr << "Error: Couldn't read a frame from the camera." << std::endl;
             break;
         }
+
+        // Undistort
+        cv::Mat newcameramtx;
+        cv::Rect roi;
+        newcameramtx = cv::getOptimalNewCameraMatrix(cameraMatrix, distCoeffs, frame.size(), 1, frame.size(), &roi);
+        cv::undistort(frame, flatFrame, cameraMatrix, distCoeffs, newcameramtx);
+
 
         // Fetching values directly from the trackbars inside the loop
         lowH = cv::getTrackbarPos("LowH", "Thresholded");
@@ -180,24 +212,45 @@ int main( int argc, char** argv ){
         lowV = cv::getTrackbarPos("LowV", "Thresholded");
         highV = cv::getTrackbarPos("HighV", "Thresholded");
 
-        cv::cvtColor(frame, hsvFrame, cv::COLOR_BGR2HSV);
-        cv::inRange(hsvFrame, cv::Scalar(lowH, lowS, lowV), cv::Scalar(highH, highS, highV), thresholdedFrame);
-
 
         // Detect the markers
         std::vector<int> ids;
         std::vector<std::vector<cv::Point2f>> corners;
         cv::aruco::DetectorParameters detectorParams = cv::aruco::DetectorParameters();
-        /* cv::aruco::detectMarkers(frame, &dictionary, corners, ids); */
+
         cv::aruco::ArucoDetector detector(dictionary, detectorParams);
-        detector.detectMarkers(frame, corners, ids);
+        detector.detectMarkers(flatFrame, corners, ids);
 
         if (ids.size() > 0) 
         {
-            cv::aruco::drawDetectedMarkers(frame, corners, ids);
+            cv::aruco::drawDetectedMarkers(flatFrame, corners, ids);
         }
 
-        cv::imshow("Original", frame);
+        // Execute transform
+        if(corners.size() == 4) for(int i = 0; i < 4; ++i){
+            play_area[ids[i]] = corners[i][0];
+        }
+
+        std::vector<cv::Point2f> dst_pts;
+        const int upscale = 5;
+        int play_width_px = play_width_cm*upscale;
+        int play_height_px = play_height_cm*upscale;
+        int edge_width_px = 10*upscale, edge_height_px = 2*upscale;
+        dst_pts.push_back(cv::Point2f(-edge_width_px, -edge_height_px));
+        dst_pts.push_back(cv::Point2f(play_width_px+edge_width_px, -edge_height_px));
+        dst_pts.push_back(cv::Point2f(play_width_px+edge_width_px, play_height_px+edge_height_px));
+        dst_pts.push_back(cv::Point2f(-edge_width_px, play_height_px+edge_height_px));
+
+        cv::Mat matrix = cv::getPerspectiveTransform(play_area, dst_pts);
+
+        cv::warpPerspective(flatFrame, transformedFrame, matrix, cv::Size(play_width_px, play_height_px));
+
+        // Threshold
+        cv::cvtColor(transformedFrame, hsvFrame, cv::COLOR_BGR2HSV);
+        cv::inRange(hsvFrame, cv::Scalar(lowH, lowS, lowV), cv::Scalar(highH, highS, highV), thresholdedFrame);
+
+
+        cv::imshow("Original", transformedFrame);
         cv::imshow("Thresholded", thresholdedFrame);
 
         if ((cv::waitKey(30) & 0xFF) == 'q') // Press any key to exit

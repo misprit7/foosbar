@@ -56,6 +56,11 @@ ret, mtx, dist, rvecs, tvecs = cv.calibrateCamera(objpoints, imgpoints, (iw,ih),
 newcameramtx, roi = cv.getOptimalNewCameraMatrix(mtx, dist, (iw,ih), 1, (iw,ih))
 dst = cv.undistort(img, mtx, dist, None, newcameramtx)
 
+fs = cv.FileStorage("../assets/calibration/calibration.yml", cv.FILE_STORAGE_WRITE)
+fs.write("camera_matrix", mtx)
+fs.write("dist_coeff", dist)
+fs.release()
+
 # crop the image
 x, y, w, h = roi
 dst = dst[y:y+h, x:x+w]
