@@ -12,22 +12,18 @@
 
 #include "clearpath/pubSysCls.h"    
 
+#include "physical_params.hpp"
+
 using namespace std;
 using namespace cv;
 using namespace sFnd;
 
 #define ever ;;
 
-#define ACC_LIM_RPM_PER_SEC    3000
-#define VEL_LIM_RPM            200
+#define ACC_LIM_RPM_PER_SEC    10000
+#define VEL_LIM_RPM            400
 
-#define HOMING_TIMEOUT 10000
-
-const int linear_min_cnts = -2400;
-const int linear_max_cnts = 0;
-
-const double play_height_cm = 68;
-const double play_width_cm = 116.6;
+#define HOMING_TIMEOUT 5000
 
 void onLowHChange(int, void*) {}
 void onHighHChange(int, void*) {}
@@ -90,6 +86,7 @@ int main( int argc, char** argv ){
 
     // Homing
     if (linear_node.Motion.Homing.HomingValid()){
+    /* if (false){ */
         linear_node.Motion.Homing.Initiate();
 
         timeout = cp_mgr.TimeStampMsec() + HOMING_TIMEOUT;            
@@ -206,8 +203,8 @@ int main( int argc, char** argv ){
 
         std::vector<cv::Point2f> dst_pts;
         const int upscale = 5;
-        int play_width_px = play_width_cm*upscale;
-        int play_height_px = play_height_cm*upscale;
+        int play_width_px = play_width*upscale;
+        int play_height_px = play_height*upscale;
         int edge_width_px = 10*upscale, edge_height_px = 2*upscale;
         dst_pts.push_back(cv::Point2f(-edge_width_px, -edge_height_px));
         dst_pts.push_back(cv::Point2f(play_width_px+edge_width_px, -edge_height_px));
@@ -259,10 +256,21 @@ int main( int argc, char** argv ){
             /* int target_cnts = linear_max_cnts - (centroid.y / ballFrame.size().height) */
             /*         * (linear_max_cnts - linear_min_cnts); */
             /* target_cnts += (target_cnts-(linear_max_cnts-linear_min_cnts)/2.0)*((22.8+44.4)/22.2); */
-            int target_cnts = (linear_max_cnts+linear_min_cnts)/2.0 - ((centroid.y / ballFrame.size().height-1.0/2)
-                    * (linear_max_cnts - linear_min_cnts))*(22.8+44.4)/22.2;
-            /* printf("%f, %f\n", ((centroid.y / ballFrame.size().height-1.0/2)), ((centroid.y / ballFrame.size().height-1.0/2) * (linear_max_cnts - linear_min_cnts))*(22.8+44.4)/22.2); */
+            /* int target_cnts = (linear_max_cnts+linear_min_cnts)/2.0 - ((centroid.y / ballFrame.size().height-1.0/2) */
+                    /* * (linear_max_cnts - linear_min_cnts))*(22.8+44.4)/22.2; */
+
+            double ball_pos = (centroid.y / ballFrame.size().height-1.0/2) * play_height;
+            int target_cnts = lin_mid_cnts[three_bar] - ball_pos * lin_cm_to_cnts[three_bar];
+
+            if(ball_pos + play_height/2 < plr_gap[three_bar] + plr_width/2 + bumper_width){
+                target_cnts -= plr_gap[three_bar] * lin_cm_to_cnts[three_bar];
+            } else if(ball_pos + play_height/2 > play_height - (plr_gap[three_bar] + plr_width/2 + bumper_width)){
+                target_cnts += plr_gap[three_bar] * lin_cm_to_cnts[three_bar];
+            }
+            cout << target_cnts << ", " << ball_pos << ", " << plr_gap[three_bar] + plr_width/2 + bumper_width << endl;
+             
             if(abs(target_cnts-linear_pos_cnts) > 30){
+            /* if(false){ */
                 double est_duration_ms = linear_node.Motion.MovePosnDurationMsec(abs(target_cnts-linear_pos_cnts));
                 linear_node.Motion.MovePosnStart(target_cnts, true);
                 printf("Target cnts: %d, estimated time: %f.\n", target_cnts, est_duration_ms);
