@@ -49,6 +49,7 @@ typedef enum rod_t {
     five_bar,
     two_bar,
     goalie,
+    num_rod_t,
 } rod_t;
 
 const double play_height = 68;
