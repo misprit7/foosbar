@@ -77,7 +77,7 @@ const int num_plrs[] = {
  * Motor Parameters
  ******************************************************************************/
 const int lin_range_cnts[][2] = {
-    {-2513, 0},
+    {-20200, 0},
 };
 
 const int lin_mid_cnts[] = {

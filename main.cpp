@@ -22,8 +22,8 @@ using namespace sFnd;
 
 #define ever ;;
 
-#define ACC_LIM_RPM_PER_SEC    3000
-#define VEL_LIM_RPM            200
+#define ACC_LIM_RPM_PER_SEC    6000
+#define VEL_LIM_RPM            400
 
 #define HOMING_TIMEOUT 5000
 
@@ -63,15 +63,15 @@ int main( int argc, char** argv ){
 
     // Open nodes (motors)
     vector<reference_wrapper<INode>> lin_nodes;
-    vector<INode> rot_nodes;
-    lin_nodes.push_back(hub0.Nodes(0));
-    /* rot_nodes.push_back(hub0.Nodes(1)); */
+    vector<reference_wrapper<INode>> rot_nodes;
+    rot_nodes.push_back(hub0.Nodes(0));
+    lin_nodes.push_back(hub0.Nodes(1));
 
     for(int i = 0; i < lin_nodes.size(); ++i){
         lin_nodes[i].get().EnableReq(false);
     }
     for(int i = 0; i < rot_nodes.size(); ++i){
-        rot_nodes[i].EnableReq(false);
+        rot_nodes[i].get().EnableReq(false);
     }
 
     cp_mgr.Delay(200);
@@ -84,9 +84,9 @@ int main( int argc, char** argv ){
     }
 
     for(int i = 0; i < rot_nodes.size(); ++i){
-        rot_nodes[i].Status.AlertsClear();
-        rot_nodes[i].Motion.NodeStopClear();
-        rot_nodes[i].EnableReq(true);
+        rot_nodes[i].get().Status.AlertsClear();
+        rot_nodes[i].get().Motion.NodeStopClear();
+        rot_nodes[i].get().EnableReq(true);
     }
 
     // Wait for enable
@@ -97,7 +97,7 @@ int main( int argc, char** argv ){
             if(!lin_nodes[i].get().Motion.IsReady()) ready = false;
         }
         for(int i = 0; i < rot_nodes.size(); ++i){
-            if(!rot_nodes[i].Motion.IsReady()) ready = false;
+            if(!rot_nodes[i].get().Motion.IsReady()) ready = false;
         }
         if(ready) break;
         if (cp_mgr.TimeStampMsec() > timeout) {
@@ -127,22 +127,22 @@ int main( int argc, char** argv ){
 
     // Set motion parameters
     for(int i = 0; i < lin_nodes.size(); ++i){
-        lin_nodes[i].get().Info.Ex.Parameter(98,1);
         lin_nodes[i].get().AccUnit(INode::RPM_PER_SEC);
         lin_nodes[i].get().VelUnit(INode::RPM);
         lin_nodes[i].get().Motion.AccLimit = ACC_LIM_RPM_PER_SEC;
         lin_nodes[i].get().Motion.VelLimit = VEL_LIM_RPM;
+        lin_nodes[i].get().Info.Ex.Parameter(98,1);
     }
     for(int i = 0; i < rot_nodes.size(); ++i){
-        rot_nodes[i].AccUnit(INode::RPM_PER_SEC);
-        rot_nodes[i].VelUnit(INode::RPM);
-        rot_nodes[i].Motion.AccLimit = ACC_LIM_RPM_PER_SEC;
-        rot_nodes[i].Motion.VelLimit = VEL_LIM_RPM;
+        rot_nodes[i].get().AccUnit(INode::RPM_PER_SEC);
+        rot_nodes[i].get().VelUnit(INode::RPM);
+        rot_nodes[i].get().Motion.AccLimit = ACC_LIM_RPM_PER_SEC;
+        rot_nodes[i].get().Motion.VelLimit = VEL_LIM_RPM;
     }
 
     
     /* int first_move_cnt = 2000; */
-    /* int second_move_cnt = -2000; */
+    /* int second_move_cnt = 4000; */
 
     /* union _mgNodeStopReg nodeStop; */
     /* nodeStop.fld.Style = MG_STOP_STYLE_IGNORE; */
@@ -150,36 +150,36 @@ int main( int argc, char** argv ){
     /* nodeStop.fld.EStop = 0; */
     /* nodeStop.fld.Quiet = 0; */
 
-    /* double est_duration_ms = rot_nodes[three_bar].Motion.MovePosnDurationMsec(abs(first_move_cnt)); */
+    /* double est_duration_ms = rot_nodes[three_bar].get().Motion.MovePosnDurationMsec(abs(first_move_cnt)); */
     /* printf("Target cnts: %d, estimated time: %f.\n", first_move_cnt, est_duration_ms); */
     /* timeout = cp_mgr.TimeStampMsec() + est_duration_ms /2; */
-    /* rot_nodes[three_bar].Motion.MovePosnStart(first_move_cnt, true); */
+    /* rot_nodes[three_bar].get().Motion.MovePosnStart(first_move_cnt, true); */
 
-    /* while (!rot_nodes[three_bar].Motion.MoveIsDone()) { */
+    /* while (!rot_nodes[three_bar].get().Motion.MoveIsDone()) { */
     /*     /1* printf("%f, %f\n", cp_mgr.TimeStampMsec(), timeout); *1/ */
     /*     if (cp_mgr.TimeStampMsec() > timeout) { */
-    /*         rot_nodes[three_bar].Motion.PosnMeasured.Refresh(); */
-    /*         printf("Stopping, current pos: %f\n", rot_nodes[three_bar].Motion.PosnMeasured.Value()); */
-    /*         rot_nodes[three_bar].Motion.NodeStop(nodeStop); */
+    /*         rot_nodes[three_bar].get().Motion.PosnMeasured.Refresh(); */
+    /*         printf("Stopping, current pos: %f\n", rot_nodes[three_bar].get().Motion.PosnMeasured.Value()); */
+    /*         /1* rot_nodes[three_bar].get().Motion.NodeStop(nodeStop); *1/ */
     /*         break; */
     /*     } */
     /* } */
 
 
-    /* est_duration_ms = rot_nodes[three_bar].Motion.MovePosnDurationMsec(abs(second_move_cnt)); */
+    /* est_duration_ms = rot_nodes[three_bar].get().Motion.MovePosnDurationMsec(abs(second_move_cnt)); */
     /* printf("Target cnts: %d, estimated time: %f.\n", second_move_cnt, est_duration_ms); */
     /* timeout = cp_mgr.TimeStampMsec() + est_duration_ms + 200; */
-    /* rot_nodes[three_bar].Motion.MovePosnStart(second_move_cnt, true); */
+    /* rot_nodes[three_bar].get().Motion.MovePosnStart(second_move_cnt, true); */
 
-    /* while (!rot_nodes[three_bar].Motion.MoveIsDone()) { */
+    /* while (!rot_nodes[three_bar].get().Motion.MoveIsDone()) { */
     /*     if (cp_mgr.TimeStampMsec() > timeout) { */
     /*         printf("Second move timed out\n"); */
     /*         break; */
     /*     } */
     /* } */
 
-    /* rot_nodes[three_bar].EnableReq(false); */
-    /* lin_nodes[three_bar].EnableReq(false); */
+    /* rot_nodes[three_bar].get().EnableReq(false); */
+    /* lin_nodes[three_bar].get().EnableReq(false); */
     /* return 0; */
 
     // Linear node tracking
@@ -337,20 +337,20 @@ int main( int argc, char** argv ){
                 target_cnts += plr_gap[three_bar] * lin_cm_to_cnts[three_bar];
             }
              
-            if(abs(target_cnts-lin_pos_cnts[three_bar]) > 30){
+            if(abs(target_cnts-lin_pos_cnts[three_bar]) > 500){
             /* if(false){ */
                 double est_duration_ms = lin_nodes[three_bar].get().Motion.MovePosnDurationMsec(abs(target_cnts-lin_pos_cnts[three_bar]));
                 lin_nodes[three_bar].get().Motion.MovePosnStart(target_cnts, true);
                 /* printf("Target cnts: %d, estimated time: %f.\n", target_cnts, est_duration_ms); */
                 timeout = cp_mgr.TimeStampMsec() + est_duration_ms + 300;
 
-                while (!lin_nodes[three_bar].get().Motion.MoveIsDone()) {
-                    if (cp_mgr.TimeStampMsec() > timeout) {
-                        printf("Error: Timed out waiting for move to complete\n");
-                        lin_nodes[three_bar].get().EnableReq(false);
-                        return -2;
-                    }
-                }
+                /* while (!lin_nodes[three_bar].get().Motion.MoveIsDone()) { */
+                /*     if (cp_mgr.TimeStampMsec() > timeout) { */
+                /*         printf("Error: Timed out waiting for move to complete\n"); */
+                /*         lin_nodes[three_bar].get().EnableReq(false); */
+                /*         return -2; */
+                /*     } */
+                /* } */
                 lin_pos_cnts[three_bar] = target_cnts;
             }
         }
