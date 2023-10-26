@@ -12,7 +12,7 @@
 #include <iostream>
 #include <cstring>
 
-#include "clearpath/pubSysCls.h"    
+#include "clearpath/pubSysCls.h"
 
 #include "physical_params.hpp"
 
@@ -22,8 +22,8 @@ using namespace sFnd;
 
 #define ever ;;
 
-#define ACC_LIM_RPM_PER_SEC    6000
-#define VEL_LIM_RPM            400
+#define ACC_LIM_RPM_PER_SEC    3000
+#define VEL_LIM_RPM            200
 
 #define HOMING_TIMEOUT 5000
 
@@ -127,6 +127,7 @@ int main( int argc, char** argv ){
 
     // Set motion parameters
     for(int i = 0; i < lin_nodes.size(); ++i){
+        lin_nodes[i].get().Info.Ex.Parameter(98,1);
         lin_nodes[i].get().AccUnit(INode::RPM_PER_SEC);
         lin_nodes[i].get().VelUnit(INode::RPM);
         lin_nodes[i].get().Motion.AccLimit = ACC_LIM_RPM_PER_SEC;
