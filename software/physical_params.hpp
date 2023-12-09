@@ -89,4 +89,12 @@ const double lin_cm_to_cnts[] = {
             / (play_height - 2*plr_gap[three_bar] - plr_width - 2*bumper_width),
 };
 
+const int rot_range_cnts[][2] = {
+    {0,800},
+};
+
+const double rot_deg_to_cnts[] = {
+    (rot_range_cnts[three_bar][1] - rot_range_cnts[three_bar][0]) / 360.0,
+};
+
 

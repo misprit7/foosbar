@@ -20,13 +20,27 @@ using namespace std;
 using namespace cv;
 using namespace sFnd;
 
+/******************************************************************************
+ * Defines
+ ******************************************************************************/
+
 #define ever ;;
 
-#define ACC_LIM_RPM_PER_SEC    6000
-#define VEL_LIM_RPM            400
+#define ACC_LIM_RPM_PER_SEC    10000
+#define VEL_LIM_RPM            1000
 
 #define HOMING_TIMEOUT 5000
 
+/******************************************************************************
+ * Global Variables
+ ******************************************************************************/
+// Might not want these to be global later, whatever for now
+vector<reference_wrapper<INode>> lin_nodes;
+vector<reference_wrapper<INode>> rot_nodes;
+
+/******************************************************************************
+ * Definitions
+ ******************************************************************************/
 void onLowHChange(int, void*) {}
 void onHighHChange(int, void*) {}
 void onLowSChange(int, void*) {}
@@ -34,7 +48,33 @@ void onHighSChange(int, void*) {}
 void onLowVChange(int, void*) {}
 void onHighVChange(int, void*) {}
 
-int main( int argc, char** argv ){
+/******************************************************************************
+ * Motor Wrappers
+ ******************************************************************************/
+void move_lin(rod_t rod, double position_cm){
+    int target_cnts = lin_cm_to_cnts[rod] * position_cm;
+    lin_nodes[rod].get().Motion.MovePosnStart(target_cnts, true);
+}
+
+void move_rot(rod_t rod, double position_deg){
+    int target_cnts = rot_deg_to_cnts[rod] * position_deg;
+    rot_nodes[rod].get().Motion.MovePosnStart(target_cnts, true);
+}
+
+void set_speed_lin(rod_t rod, double vel_cm_per_s, double acc_cm_per_s2){
+    lin_nodes[rod].get().Motion.VelLimit = vel_cm_per_s * lin_cm_to_cnts[rod];
+    lin_nodes[rod].get().Motion.AccLimit = acc_cm_per_s2 * lin_cm_to_cnts[rod];
+}
+
+void set_speed_rot(rod_t rod, double vel_deg_per_s, double acc_deg_per_s2){
+    rot_nodes[rod].get().Motion.VelLimit = vel_deg_per_s * rot_deg_to_cnts[rod];
+    rot_nodes[rod].get().Motion.AccLimit = acc_deg_per_s2 * rot_deg_to_cnts[rod];
+}
+
+/******************************************************************************
+ * Main
+ ******************************************************************************/
+int main(int argc, char** argv){
 
     SysManager cp_mgr;
     std::vector<std::string> comHubPorts;
@@ -62,8 +102,6 @@ int main( int argc, char** argv ){
         hub0.NetNumber(), hub0.OpenState(), hub0.NodeCount());
 
     // Open nodes (motors)
-    vector<reference_wrapper<INode>> lin_nodes;
-    vector<reference_wrapper<INode>> rot_nodes;
     rot_nodes.push_back(hub0.Nodes(0));
     lin_nodes.push_back(hub0.Nodes(1));
 
@@ -106,6 +144,10 @@ int main( int argc, char** argv ){
         }
     }
 
+    rot_nodes[three_bar].get().EnableReq(false);
+    lin_nodes[three_bar].get().EnableReq(false);
+    return 0;
+
     // Homing
     if (lin_nodes[three_bar].get().Motion.Homing.HomingValid()){
         if(lin_nodes[three_bar].get().Motion.Homing.WasHomed()){
@@ -127,44 +169,54 @@ int main( int argc, char** argv ){
 
     // Set motion parameters
     for(int i = 0; i < lin_nodes.size(); ++i){
-        lin_nodes[i].get().AccUnit(INode::RPM_PER_SEC);
-        lin_nodes[i].get().VelUnit(INode::RPM);
-        lin_nodes[i].get().Motion.AccLimit = ACC_LIM_RPM_PER_SEC;
-        lin_nodes[i].get().Motion.VelLimit = VEL_LIM_RPM;
+        lin_nodes[i].get().AccUnit(INode::COUNTS_PER_SEC2);
+        lin_nodes[i].get().VelUnit(INode::COUNTS_PER_SEC);
         lin_nodes[i].get().Info.Ex.Parameter(98,1);
+        /* set_speed_lin((rod_t)i, 100, 1000); */
+        set_speed_lin((rod_t)i, 50, 500);
     }
     for(int i = 0; i < rot_nodes.size(); ++i){
-        rot_nodes[i].get().AccUnit(INode::RPM_PER_SEC);
-        rot_nodes[i].get().VelUnit(INode::RPM);
-        rot_nodes[i].get().Motion.AccLimit = ACC_LIM_RPM_PER_SEC;
-        rot_nodes[i].get().Motion.VelLimit = VEL_LIM_RPM;
+        rot_nodes[i].get().AccUnit(INode::COUNTS_PER_SEC2);
+        rot_nodes[i].get().VelUnit(INode::COUNTS_PER_SEC);
+        set_speed_rot((rod_t)i, 10000, 100000);
     }
 
-    
-    /* int first_move_cnt = 2000; */
-    /* int second_move_cnt = 4000; */
+    /* int first_move_cnt = 400; */
+    /* int second_move_cnt = 399; */
 
-    /* union _mgNodeStopReg nodeStop; */
-    /* nodeStop.fld.Style = MG_STOP_STYLE_IGNORE; */
-    /* nodeStop.fld.Clear = 0; */
-    /* nodeStop.fld.EStop = 0; */
-    /* nodeStop.fld.Quiet = 0; */
+    /* /1* union _mgNodeStopReg nodeStop; *1/ */
+    /* /1* nodeStop.fld.Style = MG_STOP_STYLE_IGNORE; *1/ */
+    /* /1* nodeStop.fld.Clear = 0; *1/ */
+    /* /1* nodeStop.fld.EStop = 0; *1/ */
+    /* /1* nodeStop.fld.Quiet = 0; *1/ */
+
+    /* rot_nodes[three_bar].get().Motion.PosnMeasured.Refresh(); */
+    /* printf("cur_pos: %f", rot_nodes[three_bar].get().Motion.PosnMeasured.Value()); */
 
     /* double est_duration_ms = rot_nodes[three_bar].get().Motion.MovePosnDurationMsec(abs(first_move_cnt)); */
     /* printf("Target cnts: %d, estimated time: %f.\n", first_move_cnt, est_duration_ms); */
-    /* timeout = cp_mgr.TimeStampMsec() + est_duration_ms /2; */
+    /* double t_start = cp_mgr.TimeStampMsec(); */
+    /* timeout = cp_mgr.TimeStampMsec() + est_duration_ms + 100; */
     /* rot_nodes[three_bar].get().Motion.MovePosnStart(first_move_cnt, true); */
+    /* double t_move = 0; */
+    /* double pos_start = rot_nodes[three_bar].get().Motion.PosnMeasured.Value(); */
 
     /* while (!rot_nodes[three_bar].get().Motion.MoveIsDone()) { */
-    /*     /1* printf("%f, %f\n", cp_mgr.TimeStampMsec(), timeout); *1/ */
+    /*     rot_nodes[three_bar].get().Motion.PosnMeasured.Refresh(); */
+    /*     if(t_move == 0 && abs(rot_nodes[three_bar].get().Motion.PosnMeasured.Value() - pos_start)>100){ */
+    /*         t_move = cp_mgr.TimeStampMsec(); */
+    /*     } */
     /*     if (cp_mgr.TimeStampMsec() > timeout) { */
     /*         rot_nodes[three_bar].get().Motion.PosnMeasured.Refresh(); */
     /*         printf("Stopping, current pos: %f\n", rot_nodes[three_bar].get().Motion.PosnMeasured.Value()); */
-    /*         /1* rot_nodes[three_bar].get().Motion.NodeStop(nodeStop); *1/ */
     /*         break; */
     /*     } */
     /* } */
+    /* rot_nodes[three_bar].get().Motion.PosnMeasured.Refresh(); */
+    /* printf("t_start: %.1lf, t_move: %.1lf, t_end: %.1f\n", t_start, t_move, cp_mgr.TimeStampMsec()); */
+    /* printf("cur_pos: %f", rot_nodes[three_bar].get().Motion.PosnMeasured.Value()); */
 
+    /* cp_mgr.Delay(200); */
 
     /* est_duration_ms = rot_nodes[three_bar].get().Motion.MovePosnDurationMsec(abs(second_move_cnt)); */
     /* printf("Target cnts: %d, estimated time: %f.\n", second_move_cnt, est_duration_ms); */
@@ -178,9 +230,44 @@ int main( int argc, char** argv ){
     /*     } */
     /* } */
 
-    /* rot_nodes[three_bar].get().EnableReq(false); */
-    /* lin_nodes[three_bar].get().EnableReq(false); */
-    /* return 0; */
+    // Shoot shot
+    /* move_lin(three_bar, 0); */
+    /* move_rot(three_bar, 0); */
+
+    cp_mgr.Delay(1000);
+
+    set_speed_lin((rod_t)three_bar, 150, 1500);
+    move_lin(three_bar, -8);
+    cp_mgr.Delay(20);
+
+    set_speed_rot((rod_t)three_bar, 20000, 200000);
+    move_rot(three_bar, 90);
+    move_rot(three_bar, -45);
+
+    cp_mgr.Delay(1000);
+
+    // Back and forth linear
+    /* set_speed_lin((rod_t)three_bar, 100, 1000); */
+    /* move_lin(three_bar, 0); */
+    /* cp_mgr.Delay(1000); */
+    /* move_lin(three_bar, -20); */
+    /* cp_mgr.Delay(1000); */
+    /* move_lin(three_bar, 0); */
+    /* cp_mgr.Delay(1000); */
+
+    // Back and forth rotary
+    /* set_speed_rot((rod_t)three_bar, 20000, 300000); */
+    /* move_rot(three_bar, 0); */
+    /* cp_mgr.Delay(1000); */
+    /* move_rot(three_bar, 90); */
+    /* cp_mgr.Delay(1000); */
+    /* move_rot(three_bar, -45); */
+    /* cp_mgr.Delay(1000); */
+
+
+    rot_nodes[three_bar].get().EnableReq(false);
+    lin_nodes[three_bar].get().EnableReq(false);
+    return 0;
 
     // Linear node tracking
     int lin_pos_cnts[num_rod_t] = {0}; // Homing sets to 0
@@ -366,8 +453,13 @@ int main( int argc, char** argv ){
     cap.release();
     cv::destroyAllWindows();
 
-    // Close motors
-    lin_nodes[three_bar].get().EnableReq(false);
+    for(int i = 0; i < lin_nodes.size(); ++i){
+        lin_nodes[i].get().EnableReq(false);
+    }
+    for(int i = 0; i < rot_nodes.size(); ++i){
+        rot_nodes[i].get().EnableReq(false);
+    }
+
     cp_mgr.PortsClose(); 
 
     return 0;
