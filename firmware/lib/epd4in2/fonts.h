@@ -40,9 +40,8 @@
 #define __FONTS_H
 
 /* Max size of bitmap will based on a font24 (17x24) */
-#define MAX_HEIGHT_FONT         24
-#define MAX_WIDTH_FONT          17
-#define OFFSET_BITMAP           54
+#define MAX_HEIGHT_FONT         112
+#define MAX_WIDTH_FONT          60
 
 /* Includes ------------------------------------------------------------------*/
 #include <stdint.h>
@@ -53,6 +52,7 @@ struct sFONT {
   uint16_t Height;
 };
 
+extern sFONT Font72;
 extern sFONT Font24;
 extern sFONT Font20;
 extern sFONT Font16;
