@@ -1,5 +1,28 @@
 #pragma once
 
+#include <string>
+
+using namespace std;
+
+/******************************************************************************
+ * Rod defintions
+ ******************************************************************************/
+
+typedef enum rod_t {
+    three_bar,
+    five_bar,
+    two_bar,
+    goalie,
+    num_rod_t,
+} rod_t;
+
+const string rod_names[] = {
+    "three-bar",
+    "five-bar",
+    "two-bar",
+    "goalie",
+};
+
 
 /******************************************************************************
  * Table Dimensions
@@ -43,14 +66,6 @@
      │                                      ││
      └──────────────────────────────────────┘▼
  */
-
-typedef enum rod_t {
-    three_bar,
-    five_bar,
-    two_bar,
-    goalie,
-    num_rod_t,
-} rod_t;
 
 const double play_height = 68;
 const double play_width = 116.6;
