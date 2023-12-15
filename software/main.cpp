@@ -1,6 +1,4 @@
-#include <clearpath/pubMotion.h>
-#include <cstddef>
-#include <functional>
+#include <Network.h>
 #include <opencv2/core/utility.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/objdetect/aruco_detector.hpp>
@@ -9,12 +7,21 @@
 #include <opencv2/highgui.hpp>
 #include <opencv2/aruco.hpp>
 #include <opencv2/calib3d.hpp>
+
+
+#include <cstddef>
+#include <functional>
 #include <iostream>
 #include <cstring>
-
-#include "clearpath/pubSysCls.h"
+#include <unistd.h>
 
 #include "physical_params.hpp"
+
+#include <clearpath/pubMotion.h>
+#include <clearpath/pubSysCls.h>
+
+#include <qualisys_cpp_sdk/RTProtocol.h>
+#include <qualisys_cpp_sdk/RTPacket.h>
 
 using namespace std;
 /* using namespace cv; */
@@ -83,6 +90,65 @@ void close_all(SysManager &mgr){
  * Main
  ******************************************************************************/
 int main(int argc, char** argv){
+
+    CRTProtocol rtProtocol;
+
+    const char           serverAddr[] = "192.168.155.1";
+    const unsigned short basePort = 22222;
+    const int            majorVersion = 1;
+    const int            minorVersion = 19;
+    const bool           bigEndian = false;
+
+    unsigned short udpPort = 6734;
+    
+    while (!rtProtocol.Connected())
+    {
+        if (!rtProtocol.Connect(serverAddr, basePort, &udpPort, majorVersion, minorVersion, bigEndian))
+        {
+            printf("rtProtocol.Connect: %s\n\n", rtProtocol.GetErrorString());
+            sleep(1);
+        }
+    }
+
+    printf("Connected!\n");
+
+    if(!rtProtocol.StreamFrames(CRTProtocol::RateAllFrames, 0, udpPort, nullptr, CRTProtocol::cComponent3dNoLabels)){
+        printf("Failed streaming!\n");
+        return -1;
+    }
+
+    CRTPacket::EPacketType packetType;
+
+    printf("\n");
+    /* for(int i = 0; i < 5; ++i){ */
+    for(ever){
+        if(rtProtocol.Receive(packetType, true) == CNetwork::ResponseType::success && 
+                packetType == CRTPacket::PacketData){
+            printf("\033[A\33[2K\r");
+
+            CRTPacket *rtPacket = rtProtocol.GetRTPacket();
+
+            /* printf("Frame %d\n", rtPacket->GetFrameNumber()); */
+            printf("\033[A\33[2K\rNumber of markers: %d\n", rtPacket->Get3DNoLabelsMarkerCount());
+
+            float x, y, z;
+
+            unsigned int n;
+
+            rtPacket->Get3DNoLabelsMarker(4, x, y, z, n);
+
+            printf("x: %lf, y: %lf, z: %lf, n: %d", x, y, z, n);
+
+
+            printf("\n");
+        }
+    }
+
+    printf("Streaming!\n");
+    rtProtocol.StopCapture();
+    rtProtocol.Disconnect();
+
+    return 0;
 
     SysManager mgr;
     std::vector<std::string> comHubPorts;

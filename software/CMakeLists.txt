@@ -1,14 +1,16 @@
-cmake_minimum_required(VERSION 2.8)
-project( foosball )
+cmake_minimum_required(VERSION 3.5)
+project( foosbar )
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package( OpenCV REQUIRED )
+find_package(qualisys_cpp_sdk REQUIRED)
 include_directories( ${OpenCV_INCLUDE_DIRS} )
 
 
-add_executable( main main.cpp )
+add_executable( foosbar main.cpp )
 
-target_link_libraries( main ${OpenCV_LIBS} )
-target_link_libraries( main /usr/local/lib/libsFoundation20.so )
+target_link_libraries( foosbar ${OpenCV_LIBS} )
+target_link_libraries( foosbar /usr/local/lib/libsFoundation20.so )
+target_link_libraries( foosbar qualisys_cpp_sdk )
 
