@@ -135,15 +135,6 @@ int main(int argc, char** argv){
 
     // Enable nodes
     for(int i = 0; i < lin_nodes.size(); ++i){
-        lin_nodes[i].get().EnableReq(false);
-    }
-    for(int i = 0; i < rot_nodes.size(); ++i){
-        rot_nodes[i].get().EnableReq(false);
-    }
-
-    mgr.Delay(200);
-
-    for(int i = 0; i < lin_nodes.size(); ++i){
         lin_nodes[i].get().Status.AlertsClear();
         lin_nodes[i].get().Motion.NodeStopClear();
         lin_nodes[i].get().EnableReq(true);
@@ -176,7 +167,8 @@ int main(int argc, char** argv){
     // Start homing
     for(int i = 0; i < lin_nodes.size(); ++i){
         if(!lin_nodes[i].get().Motion.Homing.HomingValid()) continue;
-        lin_nodes[i].get().Motion.Homing.Initiate();
+        if(!lin_nodes[i].get().Motion.Homing.WasHomed()) 
+            lin_nodes[i].get().Motion.Homing.Initiate();
     }
 
     // Wait for homing
@@ -196,9 +188,6 @@ int main(int argc, char** argv){
         }
     }
 
-    close_all(mgr);
-    return 0;
-
     // Set motion parameters
     for(int i = 0; i < lin_nodes.size(); ++i){
         lin_nodes[i].get().AccUnit(INode::COUNTS_PER_SEC2);
@@ -210,42 +199,65 @@ int main(int argc, char** argv){
     for(int i = 0; i < rot_nodes.size(); ++i){
         rot_nodes[i].get().AccUnit(INode::COUNTS_PER_SEC2);
         rot_nodes[i].get().VelUnit(INode::COUNTS_PER_SEC);
+        /* rot_nodes[i].get().Info.Ex.Parameter(98,1); */
         set_speed_rot((rod_t)i, 10000, 100000);
     }
 
-    mgr.Delay(1000);
+    mgr.Delay(5000);
 
-    set_speed_lin((rod_t)three_bar, 150, 1500);
-    move_lin(three_bar, -8);
-    mgr.Delay(20);
-
+    set_speed_lin((rod_t)three_bar, 200, 2000);
     set_speed_rot((rod_t)three_bar, 20000, 200000);
-    move_rot(three_bar, 90);
+    move_lin(three_bar, -16);
+    mgr.Delay(40);
+
+    move_rot(three_bar, 145);
+    /* mgr.Delay(20); */
+    /* move_lin(three_bar, -13); */
+    /* mgr.Delay(100); */
     move_rot(three_bar, -45);
 
     mgr.Delay(1000);
 
     // Back and forth linear
-    /* set_speed_lin((rod_t)three_bar, 100, 1000); */
-    /* move_lin(three_bar, 0); */
-    /* cp_mgr.Delay(1000); */
-    /* move_lin(three_bar, -20); */
-    /* cp_mgr.Delay(1000); */
-    /* move_lin(three_bar, 0); */
-    /* cp_mgr.Delay(1000); */
+    set_speed_lin(three_bar, 100, 1000);
+    set_speed_lin(five_bar, 100, 1000);
+    set_speed_lin(goalie, 100, 1000);
 
-    // Back and forth rotary
-    /* set_speed_rot((rod_t)three_bar, 20000, 300000); */
-    /* move_rot(three_bar, 0); */
-    /* cp_mgr.Delay(1000); */
-    /* move_rot(three_bar, 90); */
-    /* cp_mgr.Delay(1000); */
-    /* move_rot(three_bar, -45); */
-    /* cp_mgr.Delay(1000); */
+    set_speed_rot(three_bar, 10000, 100000);
+    set_speed_rot(five_bar, 10000, 100000);
+    set_speed_rot(goalie, 10000, 100000);
+
+    for(int i = 0; i < 5; ++i){
+        move_lin(three_bar, 0);
+        move_lin(five_bar, 0);
+        move_lin(goalie, 0);
+        move_rot(three_bar, 0);
+        move_rot(five_bar, 0);
+        move_rot(goalie, 0);
+        mgr.Delay(500);
+
+        move_lin(three_bar, -20);
+        move_lin(five_bar, -11);
+        move_lin(goalie, 20);
+        move_rot(three_bar, 360);
+        move_rot(five_bar, 360);
+        move_rot(goalie, 360);
+        mgr.Delay(500);
+
+        move_lin(three_bar, 0);
+        move_lin(five_bar, 0);
+        move_lin(goalie, 0);
+        move_rot(three_bar, 0);
+        move_rot(five_bar, 0);
+        move_rot(goalie, 0);
+        mgr.Delay(500);
+    }
 
 
-    rot_nodes[three_bar].get().EnableReq(false);
-    lin_nodes[three_bar].get().EnableReq(false);
+    move_lin(three_bar,0);
+    move_rot(three_bar,0);
+    /* close_all(mgr); */
+    mgr.PortsClose();
     return 0;
 
     // Linear node tracking
