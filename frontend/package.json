@@ -1,0 +1,19 @@
+{
+  "name": "foosbar",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "http-server . -p 8000"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "three": "^0.159.0"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1",
+    "vite": "^5.0.9"
+  }
+}
