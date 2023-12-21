@@ -23,6 +23,9 @@
 #include <qualisys_cpp_sdk/RTProtocol.h>
 #include <qualisys_cpp_sdk/RTPacket.h>
 
+#include <uWebSockets/App.h>
+#include <nlohmann/json.hpp>
+
 using namespace std;
 /* using namespace cv; */
 using namespace sFnd;
@@ -91,9 +94,69 @@ void close_all(SysManager &mgr){
  ******************************************************************************/
 int main(int argc, char** argv){
 
-    for(int i = 0; i < num_rod_t; ++i){
-        printf("%d");
+    struct PerSocketData {
+        /* User data */
+    };
+    std::vector<uWS::WebSocket<false, true, PerSocketData>*> clients;
+    std::mutex clientsMutex;
+
+    // C++20 acting funky and makes me specificy every field
+    uWS::App().ws<PerSocketData>("/position", {
+        /* Settings */
+        .compression = uWS::SHARED_COMPRESSOR,
+        .maxPayloadLength = 16 * 1024 * 1024,
+        .idleTimeout = 16,
+        .maxBackpressure = 1 * 1024 * 1024,
+        .closeOnBackpressureLimit = false,
+        .resetIdleTimeoutOnSend = false,
+        .sendPingsAutomatically = true,
+        .maxLifetime = 0,
+        /* Handlers */
+        .upgrade = nullptr,
+        .open = [](auto * /*ws*/) {
+            /* Open event here, you may access ws->getUserData() which points to a PerSocketData struct */
+        },
+        .message = [](auto *ws, std::string_view message, uWS::OpCode opCode) {
+            ws->send(message, opCode, true);
+        },
+        .drain = [](auto * /*ws*/) {},
+        .ping = [](auto * /*ws*/, std::string_view) {},
+        .pong = [](auto * /*ws*/, std::string_view) {},
+        .close = [](auto * /*ws*/, int /*code*/, std::string_view /*message*/) {}
+    }).listen(9001, [](auto *listen_socket) {
+        if (listen_socket) {
+            std::cout << "Listening on port " << 9001 << std::endl;
+        }
+    }).listen(9001, [](auto* listen_socket) {
+        if (listen_socket) {
+            std::cout << "Listening on port " << 9001 << std::endl;
+        }
+    }).run();
+
+    thread uwsThread([&]() {
+        uWS::run(); // Run the event loop
+    });
+
+    for(ever){
+        nlohmann::json positionData = {
+            {"x", rand() % 100},
+            {"y", rand() % 100}
+        };
+        std::string message = positionData.dump();
+
+        {
+            std::lock_guard<std::mutex> lock(clientsMutex);
+            for (auto* client : clients) {
+                client->send(message, uWS::OpCode::TEXT);
+            }
+        }
+
+        std::this_thread::sleep_for(std::chrono::seconds(1));
     }
+
+    uwsThread.join();
+
+    return 0;
 
     CRTProtocol rtProtocol;
 
