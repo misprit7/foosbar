@@ -91,6 +91,10 @@ void close_all(SysManager &mgr){
  ******************************************************************************/
 int main(int argc, char** argv){
 
+    for(int i = 0; i < num_rod_t; ++i){
+        printf("%d");
+    }
+
     CRTProtocol rtProtocol;
 
     const char           serverAddr[] = "192.168.155.1";

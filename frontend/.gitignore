@@ -1,3 +1,7 @@
+*.blend1
+*.blend
+
+
 # Logs
 logs
 *.log

@@ -1,107 +1,6 @@
-//import * as THREE from 'three';
-
-//import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-
-//let camera, controls, scene, renderer;
-
-//init();
-////render(); // remove when using next line for animation loop (requestAnimationFrame)
-//animate();
-
-//function init() {
-
-//	scene = new THREE.Scene();
-//	scene.background = new THREE.Color( 0xcccccc );
-//	scene.fog = new THREE.FogExp2( 0xcccccc, 0.002 );
-
-//	renderer = new THREE.WebGLRenderer( { antialias: true } );
-//	renderer.setPixelRatio( window.devicePixelRatio );
-//	renderer.setSize( window.innerWidth, window.innerHeight );
-//	document.body.appendChild( renderer.domElement );
-
-//	camera = new THREE.PerspectiveCamera( 60, window.innerWidth / window.innerHeight, 1, 1000 );
-//	camera.position.set( 400, 200, 0 );
-
-//	// controls
-
-//	controls = new OrbitControls( camera, renderer.domElement );
-//	controls.listenToKeyEvents( window ); // optional
-
-//	//controls.addEventListener( 'change', render ); // call this only in static scenes (i.e., if there is no animation loop)
-
-//	controls.enableDamping = true; // an animation loop is required when either damping or auto-rotation are enabled
-//	controls.dampingFactor = 0.05;
-
-//	controls.screenSpacePanning = false;
-
-//	controls.minDistance = 100;
-//	controls.maxDistance = 500;
-
-//	controls.maxPolarAngle = Math.PI / 2;
-
-//	// world
-
-//	const geometry = new THREE.ConeGeometry( 10, 30, 4, 1 );
-//	const material = new THREE.MeshPhongMaterial( { color: 0xffffff, flatShading: true } );
-
-//	for ( let i = 0; i < 500; i ++ ) {
-
-//		const mesh = new THREE.Mesh( geometry, material );
-//		mesh.position.x = Math.random() * 1600 - 800;
-//		mesh.position.y = 0;
-//		mesh.position.z = Math.random() * 1600 - 800;
-//		mesh.updateMatrix();
-//		mesh.matrixAutoUpdate = false;
-//		scene.add( mesh );
-
-//	}
-
-//	// lights
-
-//	const dirLight1 = new THREE.DirectionalLight( 0xffffff, 3 );
-//	dirLight1.position.set( 1, 1, 1 );
-//	scene.add( dirLight1 );
-
-//	const dirLight2 = new THREE.DirectionalLight( 0x002288, 3 );
-//	dirLight2.position.set( - 1, - 1, - 1 );
-//	scene.add( dirLight2 );
-
-//	const ambientLight = new THREE.AmbientLight( 0x555555 );
-//	scene.add( ambientLight );
-
-//	//
-
-//	window.addEventListener( 'resize', onWindowResize );
-
-//}
-
-//function onWindowResize() {
-
-//	camera.aspect = window.innerWidth / window.innerHeight;
-//	camera.updateProjectionMatrix();
-
-//	renderer.setSize( window.innerWidth, window.innerHeight );
-
-//}
-
-//function animate() {
-
-//	requestAnimationFrame( animate );
-
-//	controls.update(); // only required if controls.enableDamping = true, or if controls.autoRotate = true
-
-//	render();
-
-//}
-
-//function render() {
-
-//	renderer.render( scene, camera );
-
-//}
-
-
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -112,50 +11,76 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 // Lighting (optional but recommended for better visuals)
-const ambientLight = new THREE.AmbientLight(0x404040); // soft white light
+const ambientLight = new THREE.AmbientLight(0x404040, 8);
 scene.add(ambientLight);
-const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
 directionalLight.position.set(0, 1, 1);
 scene.add(directionalLight);
 
-
-const tableMaterial = new THREE.MeshLambertMaterial({ color: 0x115116 }); // Brown color
-const tableGeometry = new THREE.BoxGeometry(5, 0.5, 3); // Adjust the size as needed
-const table = new THREE.Mesh(tableGeometry, tableMaterial);
-table.position.set(0, 0, 0);
-scene.add(table);
+const rodnums = [3, 5, 2, 3];
+const rodnames = ['3', '5', '2', 'g'];
+const limits = [2.3, 1.2, 3.52, 2.3];
 
 
-const rodMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
-const playerMaterial = new THREE.MeshLambertMaterial({ color: 0xff0000 }); // Red color for players
+const rods = new THREE.Group();
 
-for (let i = -2; i <= 2; i++) {
-    const rodGeometry = new THREE.CylinderGeometry(0.1, 0.1, 3, 32);
-    const rod = new THREE.Mesh(rodGeometry, rodMaterial);
-    rod.rotation.z = Math.PI / 2; // Orient the rod
-    rod.position.set(i, 0.5, 0); // Position each rod
-    scene.add(rod);
+const redrods = new THREE.Group();
+const bluerods = new THREE.Group();
 
-    // Add players along the rod
-    for (let j = -1; j <= 1; j += 1) {
-        const playerGeometry = new THREE.BoxGeometry(0.2, 0.5, 0.2);
-        const player = new THREE.Mesh(playerGeometry, playerMaterial);
-        player.position.set(i, 0.5, j);
-        scene.add(player);
-    }
-}
 
+const loader = new GLTFLoader();
+loader.load('assets/table.glb', function(gltf) {
+    const model = gltf.scene;
+
+    // model.scale.set(5, 5, 5);
+    // model.rotation.x = -Math.PI / 2;
+    model.traverse(function(object) {
+        console.log(object);
+    });
+
+
+    [['r', redrods], ['b', bluerods]].map((tup) => {
+        let c = tup[0]
+        let group = tup[1];
+        for(let i = 0; i < rodnums.length; ++i){
+            const rod = model.getObjectByName(c + rodnames[i]);
+            for(let j = 0; j < rodnums[i]; ++j){
+                // console.log(c + rodnames[i] + (j+1));
+                // console.log(rod);
+                rod.attach(model.getObjectByName(c + rodnames[i] + String(j+1)));
+            }
+            group.attach(rod);
+        }
+        rods.attach(group);
+    })
+
+
+    // redrods.position.z += 1;
+    scene.add(model);
+    scene.add(rods);
+}, undefined, function(error) {
+    console.error(error);
+});
+
+// const socket = new WebSocket('ws://');
 
 function animate() {
     requestAnimationFrame(animate);
-    // Any additional animations or updates go here
+
+    // redrods.rotation.x += 0.03;
+    redrods.children.map((rod, i) => {
+        if(rod.position.z > -limits[i]/2){
+            rod.position.z -= 0.01;
+            // console.log(rod.position.z);
+        }
+    });
+
     renderer.render(scene, camera);
 }
 
 animate();
 
 
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.update();

@@ -70,7 +70,7 @@ const string rod_names[] = {
 const double play_height = 68;
 const double play_width = 116.6;
 
-const double table_height = 75;
+const double table_height = 75.6;
 const double table_width = 139.5;
 
 const double plr_width = 3.073;
