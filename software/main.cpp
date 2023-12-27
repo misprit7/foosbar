@@ -1,4 +1,5 @@
 #include <Network.h>
+#include <mutex>
 #include <opencv2/core/utility.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/objdetect/aruco_detector.hpp>
@@ -93,65 +94,78 @@ void close_all(SysManager &mgr){
  * Main
  ******************************************************************************/
 int main(int argc, char** argv){
+    /* bool opt_websocket = true; */
+
+    /* for(int i = 0; i < argc; ++i){ */
+    /*     string s(argv[i]); */
+    /*     if(s == "--no-websocket") */
+    /*         opt_websocket = true; */
+    /* } */
 
     struct PerSocketData {
         /* User data */
     };
-    std::vector<uWS::WebSocket<false, true, PerSocketData>*> clients;
-    std::mutex clientsMutex;
+    vector<uWS::WebSocket<false, true, PerSocketData>*> clients;
+    mutex clientsMutex;
 
-    // C++20 acting funky and makes me specificy every field
-    uWS::App().ws<PerSocketData>("/position", {
-        /* Settings */
-        .compression = uWS::SHARED_COMPRESSOR,
-        .maxPayloadLength = 16 * 1024 * 1024,
-        .idleTimeout = 16,
-        .maxBackpressure = 1 * 1024 * 1024,
-        .closeOnBackpressureLimit = false,
-        .resetIdleTimeoutOnSend = false,
-        .sendPingsAutomatically = true,
-        .maxLifetime = 0,
-        /* Handlers */
-        .upgrade = nullptr,
-        .open = [](auto * /*ws*/) {
-            /* Open event here, you may access ws->getUserData() which points to a PerSocketData struct */
-        },
-        .message = [](auto *ws, std::string_view message, uWS::OpCode opCode) {
-            ws->send(message, opCode, true);
-        },
-        .drain = [](auto * /*ws*/) {},
-        .ping = [](auto * /*ws*/, std::string_view) {},
-        .pong = [](auto * /*ws*/, std::string_view) {},
-        .close = [](auto * /*ws*/, int /*code*/, std::string_view /*message*/) {}
-    }).listen(9001, [](auto *listen_socket) {
-        if (listen_socket) {
-            std::cout << "Listening on port " << 9001 << std::endl;
-        }
-    }).listen(9001, [](auto* listen_socket) {
-        if (listen_socket) {
-            std::cout << "Listening on port " << 9001 << std::endl;
-        }
-    }).run();
-
+    // Thread for web socket handling
     thread uwsThread([&]() {
-        uWS::run(); // Run the event loop
+        // C++20 acting funky and makes me specificy every field
+        uWS::App app;
+        app.ws<PerSocketData>("/position", {
+            /* Settings */
+            .compression = uWS::SHARED_COMPRESSOR,
+            .maxPayloadLength = 16 * 1024 * 1024,
+            .idleTimeout = 16,
+            .maxBackpressure = 1 * 1024 * 1024,
+            .closeOnBackpressureLimit = false,
+            .resetIdleTimeoutOnSend = false,
+            .sendPingsAutomatically = true,
+            .maxLifetime = 0,
+            /* Handlers */
+            .upgrade = nullptr,
+            .open = [&clients, &clientsMutex](auto *ws) {
+                cout << "Connection! " << 9001 << endl;
+                lock_guard<mutex> lock(clientsMutex);
+                clients.push_back(ws);
+            },
+            .message = [](auto *ws, string_view message, uWS::OpCode opCode) {
+                ws->send(message, opCode, true);
+            },
+            .drain = [](auto * /*ws*/) {},
+            .ping = [](auto * /*ws*/, string_view) {},
+            .pong = [](auto * /*ws*/, string_view) {},
+            .close = [&clients, &clientsMutex](auto* ws, int /*code*/, string_view /*message*/) {
+                cout << "Client disconnected" << endl;
+                lock_guard<mutex> lock(clientsMutex);
+                clients.erase(remove(clients.begin(), clients.end(), ws), clients.end());
+            }
+        }).listen(9001, [](auto *listen_socket) {
+            if (listen_socket) {
+                cout << "Listening on port " << 9001 << endl;
+            }
+        });
+
+        app.run(); // Run the event loop
     });
 
     for(ever){
+        cout << clients.size() << endl;
         nlohmann::json positionData = {
             {"x", rand() % 100},
             {"y", rand() % 100}
         };
-        std::string message = positionData.dump();
+        string message = positionData.dump();
 
         {
-            std::lock_guard<std::mutex> lock(clientsMutex);
+            lock_guard<mutex> lock(clientsMutex);
             for (auto* client : clients) {
                 client->send(message, uWS::OpCode::TEXT);
+                cout << "Update!" << endl;
             }
         }
 
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        this_thread::sleep_for(chrono::seconds(1));
     }
 
     uwsThread.join();
@@ -218,7 +232,7 @@ int main(int argc, char** argv){
     return 0;
 
     SysManager mgr;
-    std::vector<std::string> comHubPorts;
+    vector<string> comHubPorts;
 
     // Identify hubs
     SysManager::FindComHubPorts(comHubPorts);
@@ -401,7 +415,7 @@ int main(int argc, char** argv){
 
     if (!cap.isOpened())
     {
-        std::cerr << "Error: Couldn't open the camera." << std::endl;
+        cerr << "Error: Couldn't open the camera." << endl;
         lin_nodes[three_bar].get().EnableReq(false);
         return -1;
     }
@@ -412,7 +426,7 @@ int main(int argc, char** argv){
     cv::FileStorage fs("../assets/calibration/calibration.yml", cv::FileStorage::READ);
     if (!fs.isOpened())
     {
-        std::cerr << "Failed to open calibration.yml" << std::endl;
+        cerr << "Failed to open calibration.yml" << endl;
         lin_nodes[three_bar].get().EnableReq(false);
         return -1;
     }
@@ -441,7 +455,7 @@ int main(int argc, char** argv){
     cv::createTrackbar("HighV", "Thresholded", &highV, 255, onHighVChange);
 
     // Tracks current guess of where play area is based on fiducials
-    std::vector<cv::Point2f> play_area = {{0,0},{0,0},{0,0},{0,0}};
+    vector<cv::Point2f> play_area = {{0,0},{0,0},{0,0},{0,0}};
 
     for(ever)
     {
@@ -450,7 +464,7 @@ int main(int argc, char** argv){
         bool ret = cap.read(frame);
         if (!ret)
         {
-            std::cerr << "Error: Couldn't read a frame from the camera." << std::endl;
+            cerr << "Error: Couldn't read a frame from the camera." << endl;
             break;
         }
 
@@ -471,8 +485,8 @@ int main(int argc, char** argv){
 
 
         // Detect the markers
-        std::vector<int> ids;
-        std::vector<std::vector<cv::Point2f>> corners;
+        vector<int> ids;
+        vector<vector<cv::Point2f>> corners;
         cv::aruco::DetectorParameters detectorParams = cv::aruco::DetectorParameters();
 
         cv::aruco::ArucoDetector detector(dictionary, detectorParams);
@@ -488,7 +502,7 @@ int main(int argc, char** argv){
             play_area[ids[i]] = corners[i][0];
         }
 
-        std::vector<cv::Point2f> dst_pts;
+        vector<cv::Point2f> dst_pts;
         const int upscale = 5;
         int play_width_px = play_width*upscale;
         int play_height_px = play_height*upscale;
@@ -513,7 +527,7 @@ int main(int argc, char** argv){
         cv::dilate(ballFrame, ballFrame, element);
 
         // Find contours
-        std::vector<std::vector<cv::Point>> contours;
+        vector<vector<cv::Point>> contours;
         cv::findContours(ballFrame, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
 
         // Find the largest contour

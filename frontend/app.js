@@ -34,9 +34,9 @@ loader.load('assets/table.glb', function(gltf) {
 
     // model.scale.set(5, 5, 5);
     // model.rotation.x = -Math.PI / 2;
-    model.traverse(function(object) {
-        console.log(object);
-    });
+    // model.traverse(function(object) {
+    //     console.log(object);
+    // });
 
 
     [['r', redrods], ['b', bluerods]].map((tup) => {
@@ -62,7 +62,11 @@ loader.load('assets/table.glb', function(gltf) {
     console.error(error);
 });
 
-// const socket = new WebSocket('ws://');
+const ws = new WebSocket('ws://localhost:9001/position');
+console.log(ws);
+ws.onmessage = (event) => {
+    console.log(event);
+}
 
 function animate() {
     requestAnimationFrame(animate);
