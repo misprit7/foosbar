@@ -94,13 +94,6 @@ void close_all(SysManager &mgr){
  * Main
  ******************************************************************************/
 int main(int argc, char** argv){
-    /* bool opt_websocket = true; */
-
-    /* for(int i = 0; i < argc; ++i){ */
-    /*     string s(argv[i]); */
-    /*     if(s == "--no-websocket") */
-    /*         opt_websocket = true; */
-    /* } */
 
     struct PerSocketData {
         /* User data */
@@ -128,8 +121,14 @@ int main(int argc, char** argv){
                 cout << "Connection! " << 9001 << endl;
                 lock_guard<mutex> lock(clientsMutex);
                 clients.push_back(ws);
+                /* nlohmann::json params = {}; */
+                /* for(int i = 0; i < num_rod_t; ++i){ */
+                /*     params["spacing-" + rod_names[i]] = plr_gap[i]; */
+                /* } */
+
             },
             .message = [](auto *ws, string_view message, uWS::OpCode opCode) {
+                cout << "message" << endl;
                 ws->send(message, opCode, true);
             },
             .drain = [](auto * /*ws*/) {},
@@ -150,7 +149,7 @@ int main(int argc, char** argv){
     });
 
     for(ever){
-        cout << clients.size() << endl;
+        /* cout << clients.size() << endl; */
         nlohmann::json positionData = {
             {"x", rand() % 100},
             {"y", rand() % 100}

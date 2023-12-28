@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShader.js';
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -21,11 +26,11 @@ const rodnums = [3, 5, 2, 3];
 const rodnames = ['3', '5', '2', 'g'];
 const limits = [2.3, 1.2, 3.52, 2.3];
 
-
 const rods = new THREE.Group();
-
 const redrods = new THREE.Group();
 const bluerods = new THREE.Group();
+
+const selection = 0;
 
 
 const loader = new GLTFLoader();
@@ -45,8 +50,6 @@ loader.load('assets/table.glb', function(gltf) {
         for(let i = 0; i < rodnums.length; ++i){
             const rod = model.getObjectByName(c + rodnames[i]);
             for(let j = 0; j < rodnums[i]; ++j){
-                // console.log(c + rodnames[i] + (j+1));
-                // console.log(rod);
                 rod.attach(model.getObjectByName(c + rodnames[i] + String(j+1)));
             }
             group.attach(rod);
@@ -63,10 +66,32 @@ loader.load('assets/table.glb', function(gltf) {
 });
 
 const ws = new WebSocket('ws://localhost:9001/position');
-console.log(ws);
+// console.log(ws);
 ws.onmessage = (event) => {
     console.log(event);
 }
+
+function onKeyPress(event) {
+    // The keyCode is stored in event.keyCode
+    // console.log("Key pressed: " + event.keyCode);
+}
+document.addEventListener('keydown', onKeyPress);
+
+// var effect = new OutlineEffect(renderer, { defaultColor: new THREE.Color(0xff0000) });
+
+const composer = new EffectComposer(renderer);
+const renderPass = new RenderPass(scene, camera);
+composer.addPass(renderPass);
+
+const outlinePass = new OutlinePass(new THREE.Vector2(window.innerWidth, window.innerHeight), scene, camera);
+outlinePass.edgeStrength = 3;
+outlinePass.edgeGlow = 1;
+outlinePass.edgeThickness = 1;
+outlinePass.visibleEdgeColor.set('#ffffff');
+composer.addPass(outlinePass);
+
+const gammaCorrection = new ShaderPass( GammaCorrectionShader );
+composer.addPass( gammaCorrection );
 
 function animate() {
     requestAnimationFrame(animate);
@@ -75,11 +100,22 @@ function animate() {
     redrods.children.map((rod, i) => {
         if(rod.position.z > -limits[i]/2){
             rod.position.z -= 0.01;
-            // console.log(rod.position.z);
         }
     });
 
-    renderer.render(scene, camera);
+    if(selection >= 0 && bluerods.children[selection]){
+        // console.log(bluerods.children[selection])
+        outlinePass.selectedObjects = [bluerods.children[selection]];
+        // effect.selectedObjects = [];
+        // const originalMaterial = bluerods.children[selection].material;
+
+        const highlightMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+
+        bluerods.children[selection].material = highlightMaterial;
+    }
+    // ws.send("Hi, from the client.");
+
+    composer.render(scene, camera);
 }
 
 animate();
