@@ -111,13 +111,13 @@ const int lin_mid_cnts[] = {
 
 const double lin_cm_to_cnts[] = {
     (lin_range_cnts[three_bar][1] - lin_range_cnts[three_bar][0])
-            / (play_height - 2*plr_gap[three_bar] - plr_width - 2*bumper_width),
+            / (play_height - (num_plrs[three_bar]-1)*plr_gap[three_bar] - plr_width - 2*bumper_width),
     (lin_range_cnts[five_bar][1] - lin_range_cnts[five_bar][0])
-            / (play_height - 2*plr_gap[five_bar] - plr_width - 2*bumper_width),
+            / (play_height - (num_plrs[five_bar]-1)*plr_gap[five_bar] - plr_width - 2*bumper_width),
     (lin_range_cnts[two_bar][1] - lin_range_cnts[two_bar][0])
-            / (play_height - 2*plr_gap[two_bar] - plr_width - 2*bumper_width),
+            / (play_height - (num_plrs[two_bar]-1)*plr_gap[two_bar] - plr_width - 2*bumper_width),
     (lin_range_cnts[goalie][1] - lin_range_cnts[goalie][0])
-            / (play_height - 2*plr_gap[goalie] - plr_width - 2*bumper_width),
+            / (play_height - (num_plrs[goalie]-1)*plr_gap[goalie] - plr_width - 2*bumper_width),
 };
 
 // cm always starts at 0

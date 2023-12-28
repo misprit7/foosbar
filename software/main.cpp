@@ -79,8 +79,8 @@ void move_rot(int rod, double position_deg){
 }
 
 void set_speed_lin(int rod, double vel_cm_per_s, double acc_cm_per_s2){
-    lin_nodes[rod].get().Motion.VelLimit = vel_cm_per_s * lin_cm_to_cnts[rod];
-    lin_nodes[rod].get().Motion.AccLimit = acc_cm_per_s2 * lin_cm_to_cnts[rod];
+    lin_nodes[rod].get().Motion.VelLimit = abs(vel_cm_per_s * lin_cm_to_cnts[rod]);
+    lin_nodes[rod].get().Motion.AccLimit = abs(acc_cm_per_s2 * lin_cm_to_cnts[rod]);
 }
 
 void set_speed_rot(int rod, double vel_deg_per_s, double acc_deg_per_s2){
@@ -128,8 +128,10 @@ int main(int argc, char** argv){
     double ws_pos[num_rod_t] = {0};
     bool ws_pos_updated[num_rod_t] = {0};
 
+    struct uWS::Loop *loop;
     // Thread for web socket handling
     thread uwsThread([&]() {
+        loop = uWS::Loop::get();
         // C++20 acting funky and makes me specificy every field
         uWS::App app;
         app.ws<PerSocketData>("/position", {
@@ -177,12 +179,9 @@ int main(int argc, char** argv){
             }
         });
 
-        /* cout << "starting" << endl; */
-        /* app.run(); // Run the event loop */
-        /* cout << "finished" << endl; */
+        app.run(); // Run the event loop
     });
 
-    /* return 0; */
 
     /**************************************************************************
      * Clearpath Init
@@ -297,7 +296,7 @@ int main(int argc, char** argv){
         lin_nodes[i].get().Info.Ex.Parameter(98,1);
         /* set_speed_lin((rod_t)i, 100, 1000); */
         set_speed_lin((rod_t)i, 50, 500);
-        cout << "Set linear speed for " << rod_names[i] << endl;
+        /* cout << "Set linear speed for " << rod_names[i] << endl; */
     }
     for(int i = 0; i < rot_nodes.size(); ++i){
         rot_nodes[i].get().AccUnit(INode::COUNTS_PER_SEC2);
@@ -310,9 +309,6 @@ int main(int argc, char** argv){
      * Main Event Loop
      **************************************************************************/
 
-    move_lin(two_bar, 2);
-    move_lin(five_bar, 2);
-
     for(ever){
         /* cout << clients.size() << endl; */
         json positionData = {
@@ -324,15 +320,19 @@ int main(int argc, char** argv){
         {
             lock_guard<mutex> lock(clientsMutex);
             for (auto* client : clients) {
-                client->send(message, uWS::OpCode::TEXT);
+                loop->defer([client, message](){
+                    client->send(message, uWS::OpCode::TEXT);
+                });
                 /* cout << "Update!" << endl; */
             }
-        }
+            for(int i = 0; i < num_rod_t; ++i){
+                /* cout << lin_range_cm[i] << endl; */
+                if(ws_pos_updated[i]){
+                    move_lin(i, lin_range_cm[i] * ws_pos[i]);
+                    ws_pos_updated[i] = false;
+                }
+            }
 
-        for(int i = 0; i < num_rod_t; ++i){
-            /* cout << lin_range_cm[i] << endl; */
-            if(ws_pos_updated[i])
-                move_lin(i, lin_range_cm[i] * ws_pos[i]);
         }
 
         this_thread::sleep_for(chrono::microseconds(250));

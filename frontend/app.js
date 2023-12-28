@@ -142,7 +142,7 @@ function animate() {
         if(Math.abs(rod.position.z+dx) < limits[selection]/2){
             rod.position.z += dx;
         }
-        if(Math.abs(dx)>0.001){
+        if(Math.abs(dx)>0.01){
             const packet = {
                 'rod': selection,
                 'pos': rod.position.z/limits[selection]+1/2,
