@@ -9,7 +9,7 @@ import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShade
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.set(0, 5, 10); // Adjust the camera position for a good view
+camera.position.set(6, 10, 8); // Adjust the camera position for a good view
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -30,8 +30,8 @@ const rods = new THREE.Group();
 const redrods = new THREE.Group();
 const bluerods = new THREE.Group();
 
-const selection = 0;
-
+var selection = 0;
+var left_pressed = false, right_pressed = false;
 
 const loader = new GLTFLoader();
 loader.load('assets/table.glb', function(gltf) {
@@ -72,10 +72,41 @@ ws.onmessage = (event) => {
 }
 
 function onKeyPress(event) {
-    // The keyCode is stored in event.keyCode
-    // console.log("Key pressed: " + event.keyCode);
+    switch(event.key){
+        case 'w':
+        case 'ArrowUp':
+            if(selection > 0) --selection;
+            break;
+        case 's':
+        case 'ArrowDown':
+            if(selection < 3) ++selection;
+            break;
+        case 'a':
+        case 'ArrowLeft':
+            left_pressed = true;
+            break;
+        case 'd':
+        case 'ArrowRight':
+            right_pressed = true;
+            break;
+        default:
+    }
 }
 document.addEventListener('keydown', onKeyPress);
+
+document.addEventListener('keyup', function(event) {
+    switch(event.key){
+        case 'a':
+        case 'ArrowLeft':
+            left_pressed = false;
+            break;
+        case 'd':
+        case 'ArrowRight':
+            right_pressed = false;
+            break;
+        default:
+    }
+});
 
 // var effect = new OutlineEffect(renderer, { defaultColor: new THREE.Color(0xff0000) });
 
@@ -104,16 +135,22 @@ function animate() {
     });
 
     if(selection >= 0 && bluerods.children[selection]){
-        // console.log(bluerods.children[selection])
-        outlinePass.selectedObjects = [bluerods.children[selection]];
-        // effect.selectedObjects = [];
-        // const originalMaterial = bluerods.children[selection].material;
-
-        const highlightMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-
-        bluerods.children[selection].material = highlightMaterial;
+        const rod = bluerods.children[selection];
+        outlinePass.selectedObjects = [rod];
+        const speed = 0.07;
+        const dx = (left_pressed ? speed : 0) + (right_pressed ?- speed : 0);
+        if(Math.abs(rod.position.z+dx) < limits[selection]/2){
+            rod.position.z += dx;
+        }
+        if(Math.abs(dx)>0.001){
+            const packet = {
+                'rod': selection,
+                'pos': rod.position.z/limits[selection]+1/2,
+                'rot': rod.rotation.z,
+            };
+            ws.send(JSON.stringify(packet));
+        }
     }
-    // ws.send("Hi, from the client.");
 
     composer.render(scene, camera);
 }

@@ -30,6 +30,7 @@
 using namespace std;
 /* using namespace cv; */
 using namespace sFnd;
+using json = nlohmann::json;
 
 /******************************************************************************
  * Defines
@@ -95,18 +96,22 @@ void close_all(SysManager &mgr){
  ******************************************************************************/
 int main(int argc, char** argv){
 
+    /**************************************************************************
+     * WebSocket Init
+     **************************************************************************/
+
     struct PerSocketData {
         /* User data */
     };
     vector<uWS::WebSocket<false, true, PerSocketData>*> clients;
     mutex clientsMutex;
+    double ws_pos[num_rod_t] = {0};
 
     // Thread for web socket handling
     thread uwsThread([&]() {
         // C++20 acting funky and makes me specificy every field
         uWS::App app;
         app.ws<PerSocketData>("/position", {
-            /* Settings */
             .compression = uWS::SHARED_COMPRESSOR,
             .maxPayloadLength = 16 * 1024 * 1024,
             .idleTimeout = 16,
@@ -115,7 +120,7 @@ int main(int argc, char** argv){
             .resetIdleTimeoutOnSend = false,
             .sendPingsAutomatically = true,
             .maxLifetime = 0,
-            /* Handlers */
+
             .upgrade = nullptr,
             .open = [&clients, &clientsMutex](auto *ws) {
                 cout << "Connection! " << 9001 << endl;
@@ -127,9 +132,14 @@ int main(int argc, char** argv){
                 /* } */
 
             },
-            .message = [](auto *ws, string_view message, uWS::OpCode opCode) {
-                cout << "message" << endl;
-                ws->send(message, opCode, true);
+            .message = [&clientsMutex, &ws_pos](auto *ws, string_view message, uWS::OpCode opCode) {
+                lock_guard<mutex> lock(clientsMutex);
+                json packet = json::parse(message);
+                ws_pos[packet["rod"].get<int>()] = packet["pos"].get<double>();
+                /* cout << message << endl; */
+                /* cout << ws_pos[0] << ", " << ws_pos[1] << ", " << ws_pos[2] << ", " << ws_pos[3] << endl; */
+
+                /* ws->send(message, opCode, true); */
             },
             .drain = [](auto * /*ws*/) {},
             .ping = [](auto * /*ws*/, string_view) {},
@@ -148,88 +158,9 @@ int main(int argc, char** argv){
         app.run(); // Run the event loop
     });
 
-    for(ever){
-        /* cout << clients.size() << endl; */
-        nlohmann::json positionData = {
-            {"x", rand() % 100},
-            {"y", rand() % 100}
-        };
-        string message = positionData.dump();
-
-        {
-            lock_guard<mutex> lock(clientsMutex);
-            for (auto* client : clients) {
-                client->send(message, uWS::OpCode::TEXT);
-                cout << "Update!" << endl;
-            }
-        }
-
-        this_thread::sleep_for(chrono::seconds(1));
-    }
-
-    uwsThread.join();
-
-    return 0;
-
-    CRTProtocol rtProtocol;
-
-    const char           serverAddr[] = "192.168.155.1";
-    const unsigned short basePort = 22222;
-    const int            majorVersion = 1;
-    const int            minorVersion = 19;
-    const bool           bigEndian = false;
-
-    unsigned short udpPort = 6734;
-    
-    while (!rtProtocol.Connected())
-    {
-        if (!rtProtocol.Connect(serverAddr, basePort, &udpPort, majorVersion, minorVersion, bigEndian))
-        {
-            printf("rtProtocol.Connect: %s\n\n", rtProtocol.GetErrorString());
-            sleep(1);
-        }
-    }
-
-    printf("Connected!\n");
-
-    if(!rtProtocol.StreamFrames(CRTProtocol::RateAllFrames, 0, udpPort, nullptr, CRTProtocol::cComponent3dNoLabels)){
-        printf("Failed streaming!\n");
-        return -1;
-    }
-
-    CRTPacket::EPacketType packetType;
-
-    printf("\n");
-    /* for(int i = 0; i < 5; ++i){ */
-    for(ever){
-        if(rtProtocol.Receive(packetType, true) == CNetwork::ResponseType::success && 
-                packetType == CRTPacket::PacketData){
-            printf("\033[A\33[2K\r");
-
-            CRTPacket *rtPacket = rtProtocol.GetRTPacket();
-
-            /* printf("Frame %d\n", rtPacket->GetFrameNumber()); */
-            printf("\033[A\33[2K\rNumber of markers: %d\n", rtPacket->Get3DNoLabelsMarkerCount());
-
-            float x, y, z;
-
-            unsigned int n;
-
-            rtPacket->Get3DNoLabelsMarker(4, x, y, z, n);
-
-            printf("x: %lf, y: %lf, z: %lf, n: %d", x, y, z, n);
-
-
-            printf("\n");
-        }
-    }
-
-    printf("Streaming!\n");
-    rtProtocol.StopCapture();
-    rtProtocol.Disconnect();
-
-    return 0;
-
+    /**************************************************************************
+     * Clearpath Init
+     **************************************************************************/
     SysManager mgr;
     vector<string> comHubPorts;
 
@@ -349,6 +280,36 @@ int main(int argc, char** argv){
         set_speed_rot((rod_t)i, 10000, 100000);
     }
 
+    /**************************************************************************
+     * Main Event Loop
+     **************************************************************************/
+
+    for(ever){
+        /* cout << clients.size() << endl; */
+        json positionData = {
+            {"x", rand() % 100},
+            {"y", rand() % 100}
+        };
+        string message = positionData.dump();
+
+        {
+            lock_guard<mutex> lock(clientsMutex);
+            for (auto* client : clients) {
+                client->send(message, uWS::OpCode::TEXT);
+                cout << "Update!" << endl;
+            }
+        }
+
+        this_thread::sleep_for(chrono::seconds(1));
+    }
+
+    uwsThread.join();
+
+    return 0;
+
+#if 0
+
+
     mgr.Delay(5000);
 
     set_speed_lin((rod_t)three_bar, 200, 2000);
@@ -404,6 +365,65 @@ int main(int argc, char** argv){
     move_rot(three_bar,0);
     /* close_all(mgr); */
     mgr.PortsClose();
+    return 0;
+
+    CRTProtocol rtProtocol;
+
+    const char           serverAddr[] = "192.168.155.1";
+    const unsigned short basePort = 22222;
+    const int            majorVersion = 1;
+    const int            minorVersion = 19;
+    const bool           bigEndian = false;
+
+    unsigned short udpPort = 6734;
+    
+    while (!rtProtocol.Connected())
+    {
+        if (!rtProtocol.Connect(serverAddr, basePort, &udpPort, majorVersion, minorVersion, bigEndian))
+        {
+            printf("rtProtocol.Connect: %s\n\n", rtProtocol.GetErrorString());
+            sleep(1);
+        }
+    }
+
+    printf("Connected!\n");
+
+    if(!rtProtocol.StreamFrames(CRTProtocol::RateAllFrames, 0, udpPort, nullptr, CRTProtocol::cComponent3dNoLabels)){
+        printf("Failed streaming!\n");
+        return -1;
+    }
+
+    CRTPacket::EPacketType packetType;
+
+    printf("\n");
+    /* for(int i = 0; i < 5; ++i){ */
+    for(ever){
+        if(rtProtocol.Receive(packetType, true) == CNetwork::ResponseType::success && 
+                packetType == CRTPacket::PacketData){
+            printf("\033[A\33[2K\r");
+
+            CRTPacket *rtPacket = rtProtocol.GetRTPacket();
+
+            /* printf("Frame %d\n", rtPacket->GetFrameNumber()); */
+            printf("\033[A\33[2K\rNumber of markers: %d\n", rtPacket->Get3DNoLabelsMarkerCount());
+
+            float x, y, z;
+
+            unsigned int n;
+
+            rtPacket->Get3DNoLabelsMarker(4, x, y, z, n);
+
+            printf("x: %lf, y: %lf, z: %lf, n: %d", x, y, z, n);
+
+
+            printf("\n");
+        }
+    }
+
+    printf("Streaming!\n");
+    rtProtocol.StopCapture();
+    rtProtocol.Disconnect();
+
     return 0;
 
     // Linear node tracking
@@ -600,4 +620,5 @@ int main(int argc, char** argv){
     mgr.PortsClose(); 
 
     return -1;
+#endif
 }
