@@ -16,6 +16,7 @@ find_package( qualisys_cpp_sdk REQUIRED )
 # find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(OpenSSL REQUIRED)
+# include_directories( /usr/local/include/uWebSockets )
 
 add_executable( foosbar main.cpp )
 

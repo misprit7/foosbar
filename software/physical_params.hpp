@@ -99,7 +99,7 @@ const int lin_range_cnts[][2] = {
     {-20200, 0},
     {-10200, 0},
     {-30370, 0},
-    {0, 21000},
+    {21000, 0},
 };
 
 const int lin_mid_cnts[] = {
@@ -118,6 +118,18 @@ const double lin_cm_to_cnts[] = {
             / (play_height - 2*plr_gap[two_bar] - plr_width - 2*bumper_width),
     (lin_range_cnts[goalie][1] - lin_range_cnts[goalie][0])
             / (play_height - 2*plr_gap[goalie] - plr_width - 2*bumper_width),
+};
+
+// cm always starts at 0
+const double lin_range_cm[] = {
+    (lin_range_cnts[three_bar][1] - lin_range_cnts[three_bar][0])
+            / lin_cm_to_cnts[three_bar],
+    (lin_range_cnts[five_bar][1] - lin_range_cnts[five_bar][0])
+            / lin_cm_to_cnts[five_bar],
+    (lin_range_cnts[two_bar][1] - lin_range_cnts[two_bar][0])
+            / lin_cm_to_cnts[two_bar],
+    (lin_range_cnts[goalie][1] - lin_range_cnts[goalie][0])
+            / lin_cm_to_cnts[goalie],
 };
 
 // 0-360 degree

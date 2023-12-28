@@ -1,4 +1,5 @@
 #include <Network.h>
+#include <chrono>
 #include <mutex>
 #include <opencv2/core/utility.hpp>
 #include <opencv2/imgproc.hpp>
@@ -14,7 +15,10 @@
 #include <functional>
 #include <iostream>
 #include <cstring>
+#include <uWebSockets/PerMessageDeflate.h>
 #include <unistd.h>
+#include <csignal>
+#include <iostream>
 
 #include "physical_params.hpp"
 
@@ -47,6 +51,7 @@ using json = nlohmann::json;
  * Global Variables
  ******************************************************************************/
 // Might not want these to be global later, whatever for now
+SysManager mgr;
 vector<reference_wrapper<INode>> lin_nodes;
 vector<reference_wrapper<INode>> rot_nodes;
 
@@ -63,27 +68,27 @@ void onHighVChange(int, void*) {}
 /******************************************************************************
  * Motor Wrappers
  ******************************************************************************/
-void move_lin(rod_t rod, double position_cm){
-    int target_cnts = lin_cm_to_cnts[rod] * position_cm;
+void move_lin(int rod, double position_cm){
+    int target_cnts = -lin_cm_to_cnts[rod] * position_cm;
     lin_nodes[rod].get().Motion.MovePosnStart(target_cnts, true);
 }
 
-void move_rot(rod_t rod, double position_deg){
+void move_rot(int rod, double position_deg){
     int target_cnts = rot_deg_to_cnts[rod] * position_deg;
     rot_nodes[rod].get().Motion.MovePosnStart(target_cnts, true);
 }
 
-void set_speed_lin(rod_t rod, double vel_cm_per_s, double acc_cm_per_s2){
+void set_speed_lin(int rod, double vel_cm_per_s, double acc_cm_per_s2){
     lin_nodes[rod].get().Motion.VelLimit = vel_cm_per_s * lin_cm_to_cnts[rod];
     lin_nodes[rod].get().Motion.AccLimit = acc_cm_per_s2 * lin_cm_to_cnts[rod];
 }
 
-void set_speed_rot(rod_t rod, double vel_deg_per_s, double acc_deg_per_s2){
+void set_speed_rot(int rod, double vel_deg_per_s, double acc_deg_per_s2){
     rot_nodes[rod].get().Motion.VelLimit = vel_deg_per_s * rot_deg_to_cnts[rod];
     rot_nodes[rod].get().Motion.AccLimit = acc_deg_per_s2 * rot_deg_to_cnts[rod];
 }
 
-void close_all(SysManager &mgr){
+void close_all(){
     IPort&port = mgr.Ports(0);
     for(int i = 0; i < port.NodeCount(); ++i){
         port.Nodes(i).EnableReq(false);
@@ -92,9 +97,24 @@ void close_all(SysManager &mgr){
 }
 
 /******************************************************************************
+ * Misc
+ ******************************************************************************/
+
+void signalHandler(int signal) {
+    cout << "Got interrupt signal, closing..." << endl;
+    if (signal == SIGINT) {
+        close_all();
+        cout << "Motors disabled" << endl;
+        exit(signal);
+    }
+}
+
+/******************************************************************************
  * Main
  ******************************************************************************/
 int main(int argc, char** argv){
+
+    std::signal(SIGINT, signalHandler);
 
     /**************************************************************************
      * WebSocket Init
@@ -106,13 +126,14 @@ int main(int argc, char** argv){
     vector<uWS::WebSocket<false, true, PerSocketData>*> clients;
     mutex clientsMutex;
     double ws_pos[num_rod_t] = {0};
+    bool ws_pos_updated[num_rod_t] = {0};
 
     // Thread for web socket handling
     thread uwsThread([&]() {
         // C++20 acting funky and makes me specificy every field
         uWS::App app;
         app.ws<PerSocketData>("/position", {
-            .compression = uWS::SHARED_COMPRESSOR,
+            .compression = uWS::DISABLED,
             .maxPayloadLength = 16 * 1024 * 1024,
             .idleTimeout = 16,
             .maxBackpressure = 1 * 1024 * 1024,
@@ -132,10 +153,11 @@ int main(int argc, char** argv){
                 /* } */
 
             },
-            .message = [&clientsMutex, &ws_pos](auto *ws, string_view message, uWS::OpCode opCode) {
+            .message = [&clientsMutex, &ws_pos, &ws_pos_updated](auto *ws, string_view message, uWS::OpCode opCode) {
                 lock_guard<mutex> lock(clientsMutex);
                 json packet = json::parse(message);
                 ws_pos[packet["rod"].get<int>()] = packet["pos"].get<double>();
+                ws_pos_updated[packet["rod"].get<int>()] = true;
                 /* cout << message << endl; */
                 /* cout << ws_pos[0] << ", " << ws_pos[1] << ", " << ws_pos[2] << ", " << ws_pos[3] << endl; */
 
@@ -155,13 +177,16 @@ int main(int argc, char** argv){
             }
         });
 
-        app.run(); // Run the event loop
+        /* cout << "starting" << endl; */
+        /* app.run(); // Run the event loop */
+        /* cout << "finished" << endl; */
     });
+
+    /* return 0; */
 
     /**************************************************************************
      * Clearpath Init
      **************************************************************************/
-    SysManager mgr;
     vector<string> comHubPorts;
 
     // Identify hubs
@@ -259,8 +284,8 @@ int main(int argc, char** argv){
         if(homed) break;
         
         if(mgr.TimeStampMsec() > timeout){
-            cout << "Homing timed out\n" << endl;
-            close_all(mgr);
+            cout << "Homing timed out" << endl;
+            close_all();
             return -1;
         }
     }
@@ -272,6 +297,7 @@ int main(int argc, char** argv){
         lin_nodes[i].get().Info.Ex.Parameter(98,1);
         /* set_speed_lin((rod_t)i, 100, 1000); */
         set_speed_lin((rod_t)i, 50, 500);
+        cout << "Set linear speed for " << rod_names[i] << endl;
     }
     for(int i = 0; i < rot_nodes.size(); ++i){
         rot_nodes[i].get().AccUnit(INode::COUNTS_PER_SEC2);
@@ -283,6 +309,9 @@ int main(int argc, char** argv){
     /**************************************************************************
      * Main Event Loop
      **************************************************************************/
+
+    move_lin(two_bar, 2);
+    move_lin(five_bar, 2);
 
     for(ever){
         /* cout << clients.size() << endl; */
@@ -296,11 +325,17 @@ int main(int argc, char** argv){
             lock_guard<mutex> lock(clientsMutex);
             for (auto* client : clients) {
                 client->send(message, uWS::OpCode::TEXT);
-                cout << "Update!" << endl;
+                /* cout << "Update!" << endl; */
             }
         }
 
-        this_thread::sleep_for(chrono::seconds(1));
+        for(int i = 0; i < num_rod_t; ++i){
+            /* cout << lin_range_cm[i] << endl; */
+            if(ws_pos_updated[i])
+                move_lin(i, lin_range_cm[i] * ws_pos[i]);
+        }
+
+        this_thread::sleep_for(chrono::microseconds(250));
     }
 
     uwsThread.join();
@@ -363,7 +398,7 @@ int main(int argc, char** argv){
 
     move_lin(three_bar,0);
     move_rot(three_bar,0);
-    /* close_all(mgr); */
+    /* close_all(); */
     mgr.PortsClose();
     return 0;
 

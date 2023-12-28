@@ -128,17 +128,17 @@ function animate() {
     requestAnimationFrame(animate);
 
     // redrods.rotation.x += 0.03;
-    redrods.children.map((rod, i) => {
-        if(rod.position.z > -limits[i]/2){
-            rod.position.z -= 0.01;
-        }
-    });
+    // redrods.children.map((rod, i) => {
+    //     if(rod.position.z > -limits[i]/2){
+    //         rod.position.z -= 0.01;
+    //     }
+    // });
 
-    if(selection >= 0 && bluerods.children[selection]){
-        const rod = bluerods.children[selection];
+    if(selection >= 0 && redrods.children[selection]){
+        const rod = redrods.children[selection];
         outlinePass.selectedObjects = [rod];
         const speed = 0.07;
-        const dx = (left_pressed ? speed : 0) + (right_pressed ?- speed : 0);
+        const dx = (left_pressed ?- speed : 0) + (right_pressed ? speed : 0);
         if(Math.abs(rod.position.z+dx) < limits[selection]/2){
             rod.position.z += dx;
         }
