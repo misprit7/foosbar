@@ -40,6 +40,7 @@ const bluerods = new THREE.Group();
 
 var selection = 0;
 var left_pressed = false, right_pressed = false;
+var rot_up_pressed = false, rot_down_pressed = false;
 
 /******************************************************************************
  * Add table model
@@ -79,6 +80,8 @@ ws.onmessage = (event) => {
     for(let i = 0; i < rodnums.length; ++i){
         redrods.children[i].position.z = (packet['redpos'][i]-1/2)*limits[i];
         bluerods.children[i].position.z = (packet['bluepos'][i]-1/2)*limits[i];
+        redrods.children[i].rotation.z = (packet['redrot'][i]);
+        bluerods.children[i].rotation.z = (packet['bluerot'][i]);
     }
 }
 
@@ -88,6 +91,7 @@ setTimeout(function() {
         'selection': selection,
     };
     ws.send(JSON.stringify(packet));
+    console.log(redrods.children[0]);
 }, 500);
 
 /******************************************************************************
@@ -126,6 +130,12 @@ function onKeyPress(event) {
         case 'ArrowRight':
             right_pressed = true;
             break;
+        case 'e':
+            rot_up_pressed = true;
+            break;
+        case 'q':
+            rot_down_pressed = true;
+            break;
         default:
     }
 }
@@ -140,6 +150,12 @@ document.addEventListener('keyup', function(event) {
         case 'd':
         case 'ArrowRight':
             right_pressed = false;
+            break;
+        case 'e':
+            rot_up_pressed = false;
+            break;
+        case 'q':
+            rot_down_pressed = false;
             break;
         default:
     }
@@ -174,16 +190,22 @@ controls.update();
  * Main animation loop
  ******************************************************************************/
 
+
 function animate() {
     requestAnimationFrame(animate);
 
     if(selection >= 0 && redrods.children[selection]){
         const rod = redrods.children[selection];
         outlinePass.selectedObjects = [rod];
-        const speed = 0.07;
-        const dz = (left_pressed ?- speed : 0) + (right_pressed ? speed : 0);
-        if(ws.readyState != WebSocket.OPEN && Math.abs(rod.position.z+dz) < limits[selection]/2){
-            rod.position.z += dz;
+        const lin_speed = 0.07;
+        const rot_speed = 0.01;
+        const dz = (left_pressed ?- lin_speed : 0) + (right_pressed ? lin_speed : 0);
+        const drot = (rot_down_pressed ?- rot_speed : 0) + (rot_up_pressed ? rot_speed : 0);
+        if(ws.readyState != WebSocket.OPEN){
+            if(Math.abs(rod.position.z+dz) < limits[selection]/2){
+                rod.position.z += dz;
+            }
+            rod.rotation.y += drot;
         }
         if(Math.abs(dz)>0.01){
             const packet = {

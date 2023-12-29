@@ -335,6 +335,12 @@ int main(int argc, char** argv){
                 blue_pos[two_bar] / lin_range_cm[two_bar],
                 blue_pos[goalie] / lin_range_cm[goalie],
             }},
+            {"bluerot", {
+                0,0,0,0
+            }},
+            {"redrot", {
+                0,0,0,0
+            }},
         };
         string message = positionData.dump();
 
