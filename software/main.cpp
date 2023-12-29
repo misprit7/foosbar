@@ -15,10 +15,10 @@
 #include <functional>
 #include <iostream>
 #include <cstring>
-#include <uWebSockets/PerMessageDeflate.h>
 #include <unistd.h>
 #include <csignal>
 #include <iostream>
+#include <algorithm>
 
 #include "physical_params.hpp"
 
@@ -29,6 +29,7 @@
 #include <qualisys_cpp_sdk/RTPacket.h>
 
 #include <uWebSockets/App.h>
+#include <uWebSockets/PerMessageDeflate.h>
 #include <nlohmann/json.hpp>
 
 using namespace std;
@@ -125,8 +126,11 @@ int main(int argc, char** argv){
     };
     vector<uWS::WebSocket<false, true, PerSocketData>*> clients;
     mutex clientsMutex;
-    double ws_pos[num_rod_t] = {0};
+
+    // Webapp state
+    double ws_pos[num_rod_t] = {0.5, 0.5, 0.5, 0.5};
     bool ws_pos_updated[num_rod_t] = {0};
+    int ws_selection = -1;
 
     struct uWS::Loop *loop;
     // Thread for web socket handling
@@ -155,15 +159,18 @@ int main(int argc, char** argv){
                 /* } */
 
             },
-            .message = [&clientsMutex, &ws_pos, &ws_pos_updated](auto *ws, string_view message, uWS::OpCode opCode) {
+            // Handles incoming packets
+            .message = [&clientsMutex, &ws_pos, &ws_pos_updated, &ws_selection](auto *ws, string_view message, uWS::OpCode opCode) {
                 lock_guard<mutex> lock(clientsMutex);
                 json packet = json::parse(message);
-                ws_pos[packet["rod"].get<int>()] = packet["pos"].get<double>();
-                ws_pos_updated[packet["rod"].get<int>()] = true;
-                /* cout << message << endl; */
-                /* cout << ws_pos[0] << ", " << ws_pos[1] << ", " << ws_pos[2] << ", " << ws_pos[3] << endl; */
-
-                /* ws->send(message, opCode, true); */
+                if(packet["type"].get<string>() == "selection"){
+                    ws_selection = packet["selection"].get<int>();
+                } else if(packet["type"].get<string>() == "move"){
+                    if(ws_selection >= 0 && ws_selection <=num_rod_t){
+                        ws_pos[ws_selection] = clamp(ws_pos[ws_selection]+packet["pos"].get<double>(), 0.0, 1.0);
+                        ws_pos_updated[ws_selection] = true;
+                    }
+                }
             },
             .drain = [](auto * /*ws*/) {},
             .ping = [](auto * /*ws*/, string_view) {},
@@ -297,6 +304,8 @@ int main(int argc, char** argv){
         /* set_speed_lin((rod_t)i, 100, 1000); */
         set_speed_lin((rod_t)i, 50, 500);
         /* cout << "Set linear speed for " << rod_names[i] << endl; */
+        lin_nodes[i].get().Motion.PosnMeasured.AutoRefresh(true);
+        move_lin(i, lin_range_cm[i]/2);
     }
     for(int i = 0; i < rot_nodes.size(); ++i){
         rot_nodes[i].get().AccUnit(INode::COUNTS_PER_SEC2);
@@ -311,9 +320,21 @@ int main(int argc, char** argv){
 
     for(ever){
         /* cout << clients.size() << endl; */
+        vector<double> blue_pos;
+        for(int i = 0; i < num_rod_t; ++i){
+            blue_pos.push_back(abs(lin_nodes[i].get().Motion.PosnMeasured.Value()
+                    / lin_cm_to_cnts[i]));
+        }
         json positionData = {
-            {"x", rand() % 100},
-            {"y", rand() % 100}
+            {"bluepos", {
+                0.5, 0.5, 0.5, 0.5
+            }},
+            {"redpos", {
+                blue_pos[three_bar] / lin_range_cm[three_bar],
+                blue_pos[five_bar] / lin_range_cm[five_bar],
+                blue_pos[two_bar] / lin_range_cm[two_bar],
+                blue_pos[goalie] / lin_range_cm[goalie],
+            }},
         };
         string message = positionData.dump();
 

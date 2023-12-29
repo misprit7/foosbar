@@ -7,6 +7,10 @@ import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShader.js';
 
+/******************************************************************************
+ * THREE.js setup
+ ******************************************************************************/
+
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 camera.position.set(6, 10, 8); // Adjust the camera position for a good view
@@ -22,6 +26,10 @@ const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
 directionalLight.position.set(0, 1, 1);
 scene.add(directionalLight);
 
+/******************************************************************************
+ * Rod tracking globals
+ ******************************************************************************/
+
 const rodnums = [3, 5, 2, 3];
 const rodnames = ['3', '5', '2', 'g'];
 const limits = [2.3, 1.2, 3.52, 2.3];
@@ -33,16 +41,12 @@ const bluerods = new THREE.Group();
 var selection = 0;
 var left_pressed = false, right_pressed = false;
 
+/******************************************************************************
+ * Add table model
+ ******************************************************************************/
 const loader = new GLTFLoader();
 loader.load('assets/table.glb', function(gltf) {
     const model = gltf.scene;
-
-    // model.scale.set(5, 5, 5);
-    // model.rotation.x = -Math.PI / 2;
-    // model.traverse(function(object) {
-    //     console.log(object);
-    // });
-
 
     [['r', redrods], ['b', bluerods]].map((tup) => {
         let c = tup[0]
@@ -58,28 +62,61 @@ loader.load('assets/table.glb', function(gltf) {
     })
 
 
-    // redrods.position.z += 1;
     scene.add(model);
     scene.add(rods);
 }, undefined, function(error) {
     console.error(error);
 });
 
+/******************************************************************************
+ * Set up websocket
+ ******************************************************************************/
+
 const ws = new WebSocket('ws://localhost:9001/position');
-// console.log(ws);
 ws.onmessage = (event) => {
-    console.log(event);
+    // console.log(event);
+    const packet = JSON.parse(event.data);
+    for(let i = 0; i < rodnums.length; ++i){
+        redrods.children[i].position.z = (packet['redpos'][i]-1/2)*limits[i];
+        bluerods.children[i].position.z = (packet['bluepos'][i]-1/2)*limits[i];
+    }
 }
+
+setTimeout(function() {
+    const packet = {
+        'type': 'selection',
+        'selection': selection,
+    };
+    ws.send(JSON.stringify(packet));
+}, 500);
+
+/******************************************************************************
+ * Parse key presses
+ ******************************************************************************/
 
 function onKeyPress(event) {
     switch(event.key){
         case 'w':
         case 'ArrowUp':
-            if(selection > 0) --selection;
+            if(selection > 0){
+                --selection;
+                const packet = {
+                    'type': 'selection',
+                    'selection': selection,
+                };
+                ws.send(JSON.stringify(packet));
+            }
             break;
         case 's':
         case 'ArrowDown':
-            if(selection < 3) ++selection;
+            if(selection < 3){
+                ++selection;
+                const packet = {
+                    'type': 'selection',
+                    'selection': selection,
+                };
+                ws.send(JSON.stringify(packet));
+            }
             break;
         case 'a':
         case 'ArrowLeft':
@@ -108,7 +145,9 @@ document.addEventListener('keyup', function(event) {
     }
 });
 
-// var effect = new OutlineEffect(renderer, { defaultColor: new THREE.Color(0xff0000) });
+/******************************************************************************
+ * Selection outline
+ ******************************************************************************/
 
 const composer = new EffectComposer(renderer);
 const renderPass = new RenderPass(scene, camera);
@@ -124,29 +163,33 @@ composer.addPass(outlinePass);
 const gammaCorrection = new ShaderPass( GammaCorrectionShader );
 composer.addPass( gammaCorrection );
 
+/******************************************************************************
+ * Orbit controls
+ ******************************************************************************/
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.update();
+
+/******************************************************************************
+ * Main animation loop
+ ******************************************************************************/
+
 function animate() {
     requestAnimationFrame(animate);
-
-    // redrods.rotation.x += 0.03;
-    // redrods.children.map((rod, i) => {
-    //     if(rod.position.z > -limits[i]/2){
-    //         rod.position.z -= 0.01;
-    //     }
-    // });
 
     if(selection >= 0 && redrods.children[selection]){
         const rod = redrods.children[selection];
         outlinePass.selectedObjects = [rod];
         const speed = 0.07;
-        const dx = (left_pressed ?- speed : 0) + (right_pressed ? speed : 0);
-        if(Math.abs(rod.position.z+dx) < limits[selection]/2){
-            rod.position.z += dx;
+        const dz = (left_pressed ?- speed : 0) + (right_pressed ? speed : 0);
+        if(ws.readyState != WebSocket.OPEN && Math.abs(rod.position.z+dz) < limits[selection]/2){
+            rod.position.z += dz;
         }
-        if(Math.abs(dx)>0.01){
+        if(Math.abs(dz)>0.01){
             const packet = {
-                'rod': selection,
-                'pos': rod.position.z/limits[selection]+1/2,
-                'rot': rod.rotation.z,
+                'type': 'move',
+                'pos': dz/(limits[selection]*2),
+                'rot': 0,
             };
             ws.send(JSON.stringify(packet));
         }
@@ -156,9 +199,4 @@ function animate() {
 }
 
 animate();
-
-
-
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.update();
 
