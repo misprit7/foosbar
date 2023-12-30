@@ -33,14 +33,19 @@ scene.add(directionalLight);
 const rodnums = [3, 5, 2, 3];
 const rodnames = ['3', '5', '2', 'g'];
 const limits = [2.3, 1.2, 3.52, 2.3];
+const num_rod_t = 4;
 
 const rods = new THREE.Group();
 const redrods = new THREE.Group();
 const bluerods = new THREE.Group();
 
+// Keyboard
 var selection = 0;
 var left_pressed = false, right_pressed = false;
 var rot_up_pressed = false, rot_down_pressed = false;
+
+// Gamepad
+var dpad_y_last = 0;
 
 /******************************************************************************
  * Add table model
@@ -108,25 +113,11 @@ function onKeyPress(event) {
     switch(event.key){
         case 'w':
         case 'ArrowUp':
-            if(selection > 0){
-                --selection;
-                const packet = {
-                    'type': 'selection',
-                    'selection': selection,
-                };
-                ws.send(JSON.stringify(packet));
-            }
+            change_selection(-1);
             break;
         case 's':
         case 'ArrowDown':
-            if(selection < 3){
-                ++selection;
-                const packet = {
-                    'type': 'selection',
-                    'selection': selection,
-                };
-                ws.send(JSON.stringify(packet));
-            }
+            change_selection(1);
             break;
         case 'a':
         case 'ArrowLeft':
@@ -186,11 +177,29 @@ const gammaCorrection = new ShaderPass( GammaCorrectionShader );
 composer.addPass( gammaCorrection );
 
 /******************************************************************************
+ * Helpers
+ ******************************************************************************/
+
+function change_selection(dir){
+    if(dir == 1){
+        selection = Math.min(selection+1, num_rod_t-1);
+    } else if (dir == -1){
+        selection = Math.max(selection-1, 0);
+    }
+    const packet = {
+        'type': 'selection',
+        'selection': selection,
+    };
+    ws.send(JSON.stringify(packet));
+}
+
+/******************************************************************************
  * Orbit controls
  ******************************************************************************/
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.update();
+
 
 /******************************************************************************
  * Main animation loop
@@ -212,18 +221,31 @@ function animate() {
         let dz = 0, drot = 0;
         if(gamepads.length > 0){
             const gamepad = gamepads[0];
-            // console.log(gamepad);
+            const joystickLeftX = gamepad.axes[0];
+            const joystickLeftY = gamepad.axes[1];
+            const joystickRightX = gamepad.axes[2];
+            const joystickRightY = gamepad.axes[3];
+
+            // console.log(gamepad.axes[5]);
+            if(gamepad.axes[5] != dpad_y_last){
+                dpad_y_last = gamepad.axes[5];
+                if(dpad_y_last != 0){
+                    change_selection(dpad_y_last > 0.5 ? 1 : -1);
+                }
+            }
+
+            dz = lin_speed * joystickLeftX;
+            drot = rot_speed * joystickRightY;
         } else {
             dz = (left_pressed ?- lin_speed : 0) + (right_pressed ? lin_speed : 0);
             drot = (rot_down_pressed ?- rot_speed : 0) + (rot_up_pressed ? rot_speed : 0);
         }
         if(ws.readyState != WebSocket.OPEN){
-            if(Math.abs(rod.position.z+dz) < limits[selection]/2){
+            if(Math.abs(rod.position.z-rod.offset+dz) < limits[selection]/2){
                 rod.position.z += dz;
             }
             rod.rotation.y += drot;
-        }
-        if(Math.abs(dz)>0.001 || Math.abs(drot)>0.001){
+        } else if(Math.abs(dz)>0.001 || Math.abs(drot)>0.001){
             const packet = {
                 'type': 'move',
                 'pos': dz/(limits[selection]*2),
