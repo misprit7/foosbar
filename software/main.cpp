@@ -129,7 +129,9 @@ int main(int argc, char** argv){
 
     // Webapp state
     double ws_pos[num_rod_t] = {0.5, 0.5, 0.5, 0.5};
+    double ws_rot[num_rod_t] = {0, 0, 0, 0};
     bool ws_pos_updated[num_rod_t] = {0};
+    bool ws_rot_updated[num_rod_t] = {0};
     int ws_selection = -1;
 
     struct uWS::Loop *loop;
@@ -160,15 +162,20 @@ int main(int argc, char** argv){
 
             },
             // Handles incoming packets
-            .message = [&clientsMutex, &ws_pos, &ws_pos_updated, &ws_selection](auto *ws, string_view message, uWS::OpCode opCode) {
+            .message = [&clientsMutex, &ws_pos, &ws_pos_updated, &ws_rot, &ws_rot_updated, &ws_selection]
+                    (auto *ws, string_view message, uWS::OpCode opCode) {
                 lock_guard<mutex> lock(clientsMutex);
                 json packet = json::parse(message);
+
                 if(packet["type"].get<string>() == "selection"){
                     ws_selection = packet["selection"].get<int>();
+
                 } else if(packet["type"].get<string>() == "move"){
                     if(ws_selection >= 0 && ws_selection <=num_rod_t){
                         ws_pos[ws_selection] = clamp(ws_pos[ws_selection]+packet["pos"].get<double>(), 0.0, 1.0);
-                        ws_pos_updated[ws_selection] = true;
+                        ws_rot[ws_selection] = ws_rot[ws_selection]+packet["rot"].get<double>();
+                        ws_pos_updated[ws_selection] = abs(packet["pos"].get<double>()) > 0.001;
+                        ws_rot_updated[ws_selection] = abs(packet["rot"].get<double>()) > 0.001;
                     }
                 }
             },
@@ -311,7 +318,9 @@ int main(int argc, char** argv){
         rot_nodes[i].get().AccUnit(INode::COUNTS_PER_SEC2);
         rot_nodes[i].get().VelUnit(INode::COUNTS_PER_SEC);
         /* rot_nodes[i].get().Info.Ex.Parameter(98,1); */
-        set_speed_rot((rod_t)i, 10000, 100000);
+        rot_nodes[i].get().Motion.PosnMeasured.AutoRefresh(true);
+        /* set_speed_rot((rod_t)i, 10000, 100000); */
+        set_speed_rot((rod_t)i, 5000, 50000);
     }
 
     /**************************************************************************
@@ -320,26 +329,31 @@ int main(int argc, char** argv){
 
     for(ever){
         /* cout << clients.size() << endl; */
-        vector<double> blue_pos;
+        vector<double> red_pos;
+        vector<double> red_rot;
         for(int i = 0; i < num_rod_t; ++i){
-            blue_pos.push_back(abs(lin_nodes[i].get().Motion.PosnMeasured.Value()
+            red_pos.push_back(abs(lin_nodes[i].get().Motion.PosnMeasured.Value()
                     / lin_cm_to_cnts[i]));
+            red_rot.push_back(rot_nodes[i].get().Motion.PosnMeasured.Value() / rot_rad_to_cnts[i]);
         }
         json positionData = {
             {"bluepos", {
                 0.5, 0.5, 0.5, 0.5
             }},
             {"redpos", {
-                blue_pos[three_bar] / lin_range_cm[three_bar],
-                blue_pos[five_bar] / lin_range_cm[five_bar],
-                blue_pos[two_bar] / lin_range_cm[two_bar],
-                blue_pos[goalie] / lin_range_cm[goalie],
+                red_pos[three_bar] / lin_range_cm[three_bar],
+                red_pos[five_bar] / lin_range_cm[five_bar],
+                red_pos[two_bar] / lin_range_cm[two_bar],
+                red_pos[goalie] / lin_range_cm[goalie],
             }},
             {"bluerot", {
                 0,0,0,0
             }},
             {"redrot", {
-                0,0,0,0
+                red_rot[three_bar],
+                red_rot[five_bar],
+                red_rot[two_bar],
+                red_rot[goalie],
             }},
         };
         string message = positionData.dump();
@@ -356,6 +370,10 @@ int main(int argc, char** argv){
                 /* cout << lin_range_cm[i] << endl; */
                 if(ws_pos_updated[i]){
                     move_lin(i, lin_range_cm[i] * ws_pos[i]);
+                    ws_pos_updated[i] = false;
+                }
+                if(ws_rot_updated[i]){
+                    move_rot(i, ws_rot[i] / deg_to_rad);
                     ws_pos_updated[i] = false;
                 }
             }

@@ -86,10 +86,8 @@ setTimeout(function() {
         'selection': selection,
     };
     ws.send(JSON.stringify(packet));
-    console.log(redrods.children[0]);
 
     ws.onmessage = (event) => {
-        // console.log(event);
         const packet = JSON.parse(event.data);
         for(let i = 0; i < rodnums.length; ++i){
             const redrod = redrods.children[i];
@@ -203,24 +201,35 @@ function animate() {
     requestAnimationFrame(animate);
 
     if(selection >= 0 && redrods.children[selection]){
+        const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
         const rod = redrods.children[selection];
+
         outlinePass.selectedObjects = [rod];
+
         const lin_speed = 0.07;
-        const rot_speed = 0.01;
-        const dz = (left_pressed ?- lin_speed : 0) + (right_pressed ? lin_speed : 0);
-        const drot = (rot_down_pressed ?- rot_speed : 0) + (rot_up_pressed ? rot_speed : 0);
+        const rot_speed = 0.05;
+
+        let dz = 0, drot = 0;
+        if(gamepads.length > 0){
+            const gamepad = gamepads[0];
+            // console.log(gamepad);
+        } else {
+            dz = (left_pressed ?- lin_speed : 0) + (right_pressed ? lin_speed : 0);
+            drot = (rot_down_pressed ?- rot_speed : 0) + (rot_up_pressed ? rot_speed : 0);
+        }
         if(ws.readyState != WebSocket.OPEN){
             if(Math.abs(rod.position.z+dz) < limits[selection]/2){
                 rod.position.z += dz;
             }
             rod.rotation.y += drot;
         }
-        if(Math.abs(dz)>0.01){
+        if(Math.abs(dz)>0.001 || Math.abs(drot)>0.001){
             const packet = {
                 'type': 'move',
                 'pos': dz/(limits[selection]*2),
-                'rot': 0,
+                'rot': drot,
             };
+            // console.log(drot)
             ws.send(JSON.stringify(packet));
         }
     }

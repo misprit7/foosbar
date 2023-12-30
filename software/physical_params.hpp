@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <cmath>
 
 using namespace std;
 
@@ -140,11 +141,20 @@ const int rot_range_cnts[][2] = {
     {0,800},
 };
 
+const double deg_to_rad = (2*M_PI) / 360;
+
 const double rot_deg_to_cnts[] = {
     (rot_range_cnts[three_bar][1] - rot_range_cnts[three_bar][0]) / 360.0,
     (rot_range_cnts[five_bar][1] - rot_range_cnts[five_bar][0]) / 360.0,
     (rot_range_cnts[two_bar][1] - rot_range_cnts[two_bar][0]) / 360.0,
     (rot_range_cnts[goalie][1] - rot_range_cnts[goalie][0]) / 360.0,
+};
+
+const double rot_rad_to_cnts[] = {
+    rot_deg_to_cnts[three_bar] / deg_to_rad,
+    rot_deg_to_cnts[five_bar] / deg_to_rad,
+    rot_deg_to_cnts[two_bar] / deg_to_rad,
+    rot_deg_to_cnts[goalie] / deg_to_rad,
 };
 
 
