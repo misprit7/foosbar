@@ -47,23 +47,27 @@ var rot_up_pressed = false, rot_down_pressed = false;
  ******************************************************************************/
 const loader = new GLTFLoader();
 loader.load('assets/table.glb', function(gltf) {
-    const model = gltf.scene;
+    const table = gltf.scene;
 
     [['r', redrods], ['b', bluerods]].map((tup) => {
         let c = tup[0]
         let group = tup[1];
         for(let i = 0; i < rodnums.length; ++i){
-            const rod = model.getObjectByName(c + rodnames[i]);
+            const rod = table.getObjectByName(c + rodnames[i]);
             for(let j = 0; j < rodnums[i]; ++j){
-                rod.attach(model.getObjectByName(c + rodnames[i] + String(j+1)));
+                rod.attach(table.getObjectByName(c + rodnames[i] + String(j+1)));
             }
+            rod.offset = rod.position.z;
             group.attach(rod);
         }
         rods.attach(group);
     })
 
-
-    scene.add(model);
+    // var axesHelper = new THREE.AxesHelper(5);
+    // table.add(axesHelper);
+    scene.add(table);
+    // var axesHelper = new THREE.AxesHelper(5);
+    // redrods.children[0].add(axesHelper);
     scene.add(rods);
 }, undefined, function(error) {
     console.error(error);
@@ -74,17 +78,8 @@ loader.load('assets/table.glb', function(gltf) {
  ******************************************************************************/
 
 const ws = new WebSocket('ws://localhost:9001/position');
-ws.onmessage = (event) => {
-    // console.log(event);
-    const packet = JSON.parse(event.data);
-    for(let i = 0; i < rodnums.length; ++i){
-        redrods.children[i].position.z = (packet['redpos'][i]-1/2)*limits[i];
-        bluerods.children[i].position.z = (packet['bluepos'][i]-1/2)*limits[i];
-        redrods.children[i].rotation.z = (packet['redrot'][i]);
-        bluerods.children[i].rotation.z = (packet['bluerot'][i]);
-    }
-}
 
+// Should probably be a callback when ws connects
 setTimeout(function() {
     const packet = {
         'type': 'selection',
@@ -92,7 +87,20 @@ setTimeout(function() {
     };
     ws.send(JSON.stringify(packet));
     console.log(redrods.children[0]);
-}, 500);
+
+    ws.onmessage = (event) => {
+        // console.log(event);
+        const packet = JSON.parse(event.data);
+        for(let i = 0; i < rodnums.length; ++i){
+            const redrod = redrods.children[i];
+            redrod.position.z = redrod.offset + (packet['redpos'][i]-1/2)*limits[i];
+            const bluerod = bluerods.children[i];
+            bluerod.position.z = bluerod.offset + (packet['bluepos'][i]-1/2)*limits[i];
+            redrods.children[i].rotation.y = (packet['redrot'][i]);
+            bluerods.children[i].rotation.y = (packet['bluerot'][i]);
+        }
+    }
+}, 300);
 
 /******************************************************************************
  * Parse key presses
