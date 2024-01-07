@@ -27,17 +27,19 @@ directionalLight.position.set(0, 1, 1);
 scene.add(directionalLight);
 
 /******************************************************************************
- * Rod tracking globals
+ * Table tracking globals
  ******************************************************************************/
 
-const rodnums = [3, 5, 2, 3];
-const rodnames = ['3', '5', '2', 'g'];
+const rod_nums = [3, 5, 2, 3];
+const rod_names = ['3', '5', '2', 'g'];
 const limits = [2.3, 1.2, 3.52, 2.3];
 const num_rod_t = 4;
+const table_width = 6.4525, table_height = 11.3125;
 
 const rods = new THREE.Group();
-const redrods = new THREE.Group();
-const bluerods = new THREE.Group();
+const red_rods = new THREE.Group();
+const blue_rods = new THREE.Group();
+let ball = new THREE.Group();
 
 // Keyboard
 var selection = 0;
@@ -54,19 +56,22 @@ const loader = new GLTFLoader();
 loader.load('assets/table.glb', function(gltf) {
     const table = gltf.scene;
 
-    [['r', redrods], ['b', bluerods]].map((tup) => {
+    [['r', red_rods], ['b', blue_rods]].map((tup) => {
         let c = tup[0]
         let group = tup[1];
-        for(let i = 0; i < rodnums.length; ++i){
-            const rod = table.getObjectByName(c + rodnames[i]);
-            for(let j = 0; j < rodnums[i]; ++j){
-                rod.attach(table.getObjectByName(c + rodnames[i] + String(j+1)));
+        for(let i = 0; i < rod_nums.length; ++i){
+            const rod = table.getObjectByName(c + rod_names[i]);
+            for(let j = 0; j < rod_nums[i]; ++j){
+                rod.attach(table.getObjectByName(c + rod_names[i] + String(j+1)));
             }
             rod.offset = rod.position.z;
             group.attach(rod);
         }
         rods.attach(group);
     })
+    // console.log(table.children);
+
+    ball = table.getObjectByName("Sphere");
 
     // var axesHelper = new THREE.AxesHelper(5);
     // table.add(axesHelper);
@@ -74,6 +79,7 @@ loader.load('assets/table.glb', function(gltf) {
     // var axesHelper = new THREE.AxesHelper(5);
     // redrods.children[0].add(axesHelper);
     scene.add(rods);
+    scene.add(ball);
 }, undefined, function(error) {
     console.error(error);
 });
@@ -94,13 +100,19 @@ setTimeout(function() {
 
     ws.onmessage = (event) => {
         const packet = JSON.parse(event.data);
-        for(let i = 0; i < rodnums.length; ++i){
-            const redrod = redrods.children[i];
-            redrod.position.z = redrod.offset + (packet['redpos'][i]-1/2)*limits[i];
-            const bluerod = bluerods.children[i];
-            bluerod.position.z = bluerod.offset + (packet['bluepos'][i]-1/2)*limits[i];
-            redrods.children[i].rotation.y = (packet['redrot'][i]);
-            bluerods.children[i].rotation.y = (packet['bluerot'][i]);
+        const type = packet['type']
+        if(type == 'pos'){
+            for(let i = 0; i < rod_nums.length; ++i){
+                const redrod = red_rods.children[i];
+                redrod.position.z = redrod.offset + (packet['redpos'][i]-1/2)*limits[i];
+                const bluerod = blue_rods.children[i];
+                bluerod.position.z = bluerod.offset + (packet['bluepos'][i]-1/2)*limits[i];
+
+                red_rods.children[i].rotation.y = (packet['redrot'][i]);
+                blue_rods.children[i].rotation.y = (packet['bluerot'][i]);
+            }
+            ball.position.x = (packet['ballpos'][1]-0.5) * table_height;
+            ball.position.z = (packet['ballpos'][0]-0.5) * table_width;
         }
     }
 }, 300);
@@ -209,14 +221,14 @@ controls.update();
 function animate() {
     requestAnimationFrame(animate);
 
-    if(selection >= 0 && redrods.children[selection]){
+    if(selection >= 0 && red_rods.children[selection]){
         const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-        const rod = redrods.children[selection];
+        const rod = red_rods.children[selection];
 
         outlinePass.selectedObjects = [rod];
 
-        const lin_speed = 0.07;
-        const rot_speed = 0.05;
+        const lin_speed = 0.20;
+        const rot_speed = 0.2;
 
         let dz = 0, drot = 0;
         if(gamepads.length > 0){

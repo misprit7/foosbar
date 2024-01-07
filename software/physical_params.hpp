@@ -14,7 +14,7 @@ typedef enum rod_t {
     five_bar,
     two_bar,
     goalie,
-    num_rod_t,
+    num_rod_t
 } rod_t;
 
 const string rod_names[] = {
@@ -78,6 +78,8 @@ const double plr_width = 3.073;
 
 const double bumper_width = 2.496;
 
+const double plr_dist = 101.7/7;
+
 // Slightly more accurate to measure multiple then divide
 const double plr_gap[] = {
     (45.1 - 2*bumper_width - plr_width) / 2,
@@ -93,14 +95,23 @@ const int num_plrs[] = {
     3,
 };
 
+const double ball_rad = 3.475/2;
+
+/******************************************************************************
+ * Vision Parameters
+ ******************************************************************************/
+
+const double cal_offset_x = -4;
+const double cal_offset_y = 0.5;
+
 /******************************************************************************
  * Motor Parameters
  ******************************************************************************/
 const int lin_range_cnts[][2] = {
-    {-20200, 0},
-    {-10200, 0},
-    {-30370, 0},
-    {21000, 0},
+    {-20200, 10},
+    {-10150, 10},
+    {-30370, 10},
+    {21000, 10},
 };
 
 const int lin_mid_cnts[] = {
