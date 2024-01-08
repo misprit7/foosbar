@@ -75,6 +75,8 @@ void onHighVChange(int, void*) {}
 /******************************************************************************
  * Motor Wrappers
  ******************************************************************************/
+
+
 void move_lin(int rod, double position_cm){
     int target_cnts = clamp(
             (int)(-lin_cm_to_cnts[rod] * position_cm),
@@ -105,6 +107,134 @@ void close_all(){
         port.Nodes(i).EnableReq(false);
     }
     mgr.PortsClose();
+}
+
+int motors_init(){
+    vector<string> comHubPorts;
+
+    // Identify hubs
+    SysManager::FindComHubPorts(comHubPorts);
+    printf("Found %zu SC Hubs\n", comHubPorts.size());
+
+    // Find available ports
+    size_t portCount = 0;
+    for (portCount = 0; portCount < comHubPorts.size() && portCount < NET_CONTROLLER_MAX; portCount++) {
+        mgr.ComHubPort(portCount, comHubPorts[portCount].c_str());
+    }
+
+    if (portCount < 0) {
+        printf("Unable to locate SC hub port\n");
+        return -1;
+    }
+
+    // Open ports (hubs)
+    mgr.PortsOpen(portCount);
+
+    IPort &port = mgr.Ports(0);
+    printf(" Port[%d]: state=%d, nodes=%d\n",
+        port.NetNumber(), port.OpenState(), port.NodeCount());
+
+    // Arrange nodes
+    for(int i = 0; i < num_rod_t; ++i){
+        string lin_name = "lin-" + rod_names[i];
+        string rot_name = "rot-" + rod_names[i];
+        bool lin_found = false, rot_found = false;
+
+        // Search to find correct names
+        for(int j = 0; j < port.NodeCount(); ++j){
+            string name = port.Nodes(j).Info.UserID.Value();
+            if(!lin_found && lin_name == name){
+                lin_nodes.push_back(port.Nodes(j));
+                lin_found = true;
+            }
+            if(!rot_found && rot_name == name){
+                rot_nodes.push_back(port.Nodes(j));
+                rot_found = true;
+            }
+        }
+        if(!lin_found || !rot_found){
+            printf("Not all motors are present!\n");
+            return -1;
+        }
+    }
+
+    // Enable nodes
+    for(int i = 0; i < lin_nodes.size(); ++i){
+        lin_nodes[i].get().Status.AlertsClear();
+        lin_nodes[i].get().Motion.NodeStopClear();
+        lin_nodes[i].get().EnableReq(true);
+    }
+
+    for(int i = 0; i < rot_nodes.size(); ++i){
+        rot_nodes[i].get().Status.AlertsClear();
+        rot_nodes[i].get().Motion.NodeStopClear();
+        rot_nodes[i].get().EnableReq(true);
+    }
+
+    // Wait for enable
+    double timeout = mgr.TimeStampMsec() + 2000;
+    for(ever){
+        bool ready = true;
+        for(int i = 0; i < lin_nodes.size(); ++i){
+            if(!lin_nodes[i].get().Motion.IsReady()) ready = false;
+        }
+        for(int i = 0; i < rot_nodes.size(); ++i){
+            if(!rot_nodes[i].get().Motion.IsReady()) ready = false;
+        }
+        if(ready) break;
+        if (mgr.TimeStampMsec() > timeout) {
+            printf("Timed out waiting for Nodes to enable\n");
+            return -1;
+        }
+    }
+
+
+    // Start homing
+    for(int i = 0; i < lin_nodes.size(); ++i){
+        if(!lin_nodes[i].get().Motion.Homing.HomingValid()) continue;
+        if(!lin_nodes[i].get().Motion.Homing.WasHomed()) 
+            lin_nodes[i].get().Motion.Homing.Initiate();
+    }
+
+    // Wait for homing
+    timeout = mgr.TimeStampMsec() + HOMING_TIMEOUT;
+    for(ever){
+        bool homed = true;
+        for(int i = 0; i < lin_nodes.size(); ++i){
+            if(!lin_nodes[i].get().Motion.Homing.HomingValid()) continue;
+            if(!lin_nodes[i].get().Motion.Homing.WasHomed()) homed = false;
+        }
+        if(homed) break;
+        
+        if(mgr.TimeStampMsec() > timeout){
+            cout << "Homing timed out" << endl;
+            close_all();
+            return -1;
+        }
+    }
+
+    // Set motion parameters
+    for(int i = 0; i < lin_nodes.size(); ++i){
+        lin_nodes[i].get().AccUnit(INode::COUNTS_PER_SEC2);
+        lin_nodes[i].get().VelUnit(INode::COUNTS_PER_SEC);
+        lin_nodes[i].get().Info.Ex.Parameter(98,1);
+        /* set_speed_lin((rod_t)i, 100, 1000); */
+        set_speed_lin((rod_t)i, 50, 500);
+        /* cout << "Set linear speed for " << rod_names[i] << endl; */
+        lin_nodes[i].get().Motion.PosnMeasured.AutoRefresh(true);
+        move_lin(i, lin_range_cm[i]/2);
+    }
+    for(int i = 0; i < rot_nodes.size(); ++i){
+        rot_nodes[i].get().AccUnit(INode::COUNTS_PER_SEC2);
+        rot_nodes[i].get().VelUnit(INode::COUNTS_PER_SEC);
+        if(i != goalie)
+            rot_nodes[i].get().Info.Ex.Parameter(98,1);
+        rot_nodes[i].get().Motion.PosnMeasured.AutoRefresh(true);
+        /* set_speed_rot((rod_t)i, 10000, 100000); */
+        set_speed_rot((rod_t)i, 5000, 50000);
+        move_rot(i, 0);
+    }
+
 }
 
 /******************************************************************************
@@ -256,130 +386,9 @@ int main(int argc, char** argv){
     /**************************************************************************
      * Clearpath Init
      **************************************************************************/
-    vector<string> comHubPorts;
 
-    // Identify hubs
-    SysManager::FindComHubPorts(comHubPorts);
-    printf("Found %zu SC Hubs\n", comHubPorts.size());
-
-    // Find available ports
-    size_t portCount = 0;
-    for (portCount = 0; portCount < comHubPorts.size() && portCount < NET_CONTROLLER_MAX; portCount++) {
-        mgr.ComHubPort(portCount, comHubPorts[portCount].c_str());
-    }
-
-    if (portCount < 0) {
-        printf("Unable to locate SC hub port\n");
-        return -1;
-    }
-
-    // Open ports (hubs)
-    mgr.PortsOpen(portCount);
-
-    IPort &port = mgr.Ports(0);
-    printf(" Port[%d]: state=%d, nodes=%d\n",
-        port.NetNumber(), port.OpenState(), port.NodeCount());
-
-    // Arrange nodes
-    for(int i = 0; i < num_rod_t; ++i){
-        string lin_name = "lin-" + rod_names[i];
-        string rot_name = "rot-" + rod_names[i];
-        bool lin_found = false, rot_found = false;
-
-        // Search to find correct names
-        for(int j = 0; j < port.NodeCount(); ++j){
-            string name = port.Nodes(j).Info.UserID.Value();
-            if(!lin_found && lin_name == name){
-                lin_nodes.push_back(port.Nodes(j));
-                lin_found = true;
-            }
-            if(!rot_found && rot_name == name){
-                rot_nodes.push_back(port.Nodes(j));
-                rot_found = true;
-            }
-        }
-        if(!lin_found || !rot_found){
-            printf("Not all motors are present!\n");
-            return -1;
-        }
-    }
-
-    // Enable nodes
-    for(int i = 0; i < lin_nodes.size(); ++i){
-        lin_nodes[i].get().Status.AlertsClear();
-        lin_nodes[i].get().Motion.NodeStopClear();
-        lin_nodes[i].get().EnableReq(true);
-    }
-
-    for(int i = 0; i < rot_nodes.size(); ++i){
-        rot_nodes[i].get().Status.AlertsClear();
-        rot_nodes[i].get().Motion.NodeStopClear();
-        rot_nodes[i].get().EnableReq(true);
-    }
-
-    // Wait for enable
-    double timeout = mgr.TimeStampMsec() + 2000;
-    for(ever){
-        bool ready = true;
-        for(int i = 0; i < lin_nodes.size(); ++i){
-            if(!lin_nodes[i].get().Motion.IsReady()) ready = false;
-        }
-        for(int i = 0; i < rot_nodes.size(); ++i){
-            if(!rot_nodes[i].get().Motion.IsReady()) ready = false;
-        }
-        if(ready) break;
-        if (mgr.TimeStampMsec() > timeout) {
-            printf("Timed out waiting for Nodes to enable\n");
-            return -1;
-        }
-    }
-
-
-    // Start homing
-    for(int i = 0; i < lin_nodes.size(); ++i){
-        if(!lin_nodes[i].get().Motion.Homing.HomingValid()) continue;
-        if(!lin_nodes[i].get().Motion.Homing.WasHomed()) 
-            lin_nodes[i].get().Motion.Homing.Initiate();
-    }
-
-    // Wait for homing
-    timeout = mgr.TimeStampMsec() + HOMING_TIMEOUT;
-    for(ever){
-        bool homed = true;
-        for(int i = 0; i < lin_nodes.size(); ++i){
-            if(!lin_nodes[i].get().Motion.Homing.HomingValid()) continue;
-            if(!lin_nodes[i].get().Motion.Homing.WasHomed()) homed = false;
-        }
-        if(homed) break;
-        
-        if(mgr.TimeStampMsec() > timeout){
-            cout << "Homing timed out" << endl;
-            close_all();
-            return -1;
-        }
-    }
-
-    // Set motion parameters
-    for(int i = 0; i < lin_nodes.size(); ++i){
-        lin_nodes[i].get().AccUnit(INode::COUNTS_PER_SEC2);
-        lin_nodes[i].get().VelUnit(INode::COUNTS_PER_SEC);
-        lin_nodes[i].get().Info.Ex.Parameter(98,1);
-        /* set_speed_lin((rod_t)i, 100, 1000); */
-        set_speed_lin((rod_t)i, 50, 500);
-        /* cout << "Set linear speed for " << rod_names[i] << endl; */
-        lin_nodes[i].get().Motion.PosnMeasured.AutoRefresh(true);
-        move_lin(i, lin_range_cm[i]/2);
-    }
-    for(int i = 0; i < rot_nodes.size(); ++i){
-        rot_nodes[i].get().AccUnit(INode::COUNTS_PER_SEC2);
-        rot_nodes[i].get().VelUnit(INode::COUNTS_PER_SEC);
-        if(i != goalie)
-            rot_nodes[i].get().Info.Ex.Parameter(98,1);
-        rot_nodes[i].get().Motion.PosnMeasured.AutoRefresh(true);
-        /* set_speed_rot((rod_t)i, 10000, 100000); */
-        set_speed_rot((rod_t)i, 5000, 50000);
-        move_rot(i, 0);
-    }
+    int init_err = motors_init();
+    if(init_err < 0) return init_err;
 
     /**************************************************************************
      * Main Event Loop
@@ -497,202 +506,4 @@ int main(int argc, char** argv){
     uwsThread.join();
 
     return 0;
-
-#if 0
-
-    // Linear node tracking
-    int lin_pos_cnts[num_rod_t] = {0}; // Homing sets to 0
-
-    // Open video capture
-    cv::VideoCapture cap(2);
-
-    if (!cap.isOpened())
-    {
-        cerr << "Error: Couldn't open the camera." << endl;
-        lin_nodes[three_bar].get().EnableReq(false);
-        return -1;
-    }
-
-    // Retrieve calibration parameters
-    cv::Mat cameraMatrix, distCoeffs;
-
-    cv::FileStorage fs("../assets/calibration/calibration.yml", cv::FileStorage::READ);
-    if (!fs.isOpened())
-    {
-        cerr << "Failed to open calibration.yml" << endl;
-        lin_nodes[three_bar].get().EnableReq(false);
-        return -1;
-    }
-
-    fs["camera_matrix"] >> cameraMatrix;
-    fs["dist_coeff"] >> distCoeffs;
-
-    fs.release();
-
-    // Aruco symbols used
-    cv::aruco::Dictionary dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_4X4_50);
-
-    // Make threshold window
-    cv::namedWindow("Original", cv::WINDOW_AUTOSIZE);
-    cv::namedWindow("Thresholded", cv::WINDOW_AUTOSIZE);
-
-    int lowH = 10, highH = 20;
-    int lowS = 139, highS = 255;
-    int lowV = 92, highV = 221;
-
-    cv::createTrackbar("LowH", "Thresholded", &lowH, 180, onLowHChange);
-    cv::createTrackbar("LowS", "Thresholded", &lowS, 255, onLowSChange);
-    cv::createTrackbar("LowV", "Thresholded", &lowV, 255, onLowVChange);
-    cv::createTrackbar("HighH", "Thresholded", &highH, 180, onHighHChange);
-    cv::createTrackbar("HighS", "Thresholded", &highS, 255, onHighSChange);
-    cv::createTrackbar("HighV", "Thresholded", &highV, 255, onHighVChange);
-
-    // Tracks current guess of where play area is based on fiducials
-    vector<cv::Point2f> play_area = {{0,0},{0,0},{0,0},{0,0}};
-
-    for(ever)
-    {
-        cv::Mat frame, flatFrame, hsvFrame, thresholdedFrame, transformedFrame;
-
-        bool ret = cap.read(frame);
-        if (!ret)
-        {
-            cerr << "Error: Couldn't read a frame from the camera." << endl;
-            break;
-        }
-
-        // Undistort
-        cv::Mat newcameramtx;
-        cv::Rect roi;
-        newcameramtx = cv::getOptimalNewCameraMatrix(cameraMatrix, distCoeffs, frame.size(), 1, frame.size(), &roi);
-        cv::undistort(frame, flatFrame, cameraMatrix, distCoeffs, newcameramtx);
-
-
-        // Fetching values directly from the trackbars inside the loop
-        lowH = cv::getTrackbarPos("LowH", "Thresholded");
-        highH = cv::getTrackbarPos("HighH", "Thresholded");
-        lowS = cv::getTrackbarPos("LowS", "Thresholded");
-        highS = cv::getTrackbarPos("HighS", "Thresholded");
-        lowV = cv::getTrackbarPos("LowV", "Thresholded");
-        highV = cv::getTrackbarPos("HighV", "Thresholded");
-
-
-        // Detect the markers
-        vector<int> ids;
-        vector<vector<cv::Point2f>> corners;
-        cv::aruco::DetectorParameters detectorParams = cv::aruco::DetectorParameters();
-
-        cv::aruco::ArucoDetector detector(dictionary, detectorParams);
-        detector.detectMarkers(flatFrame, corners, ids);
-
-        if (ids.size() > 0) 
-        {
-            cv::aruco::drawDetectedMarkers(flatFrame, corners, ids);
-        }
-
-        // Execute transform
-        if(corners.size() == 4) for(int i = 0; i < 4; ++i){
-            play_area[ids[i]] = corners[i][0];
-        }
-
-        vector<cv::Point2f> dst_pts;
-        const int upscale = 5;
-        int play_width_px = play_width*upscale;
-        int play_height_px = play_height*upscale;
-        int edge_width_px = 10*upscale, edge_height_px = 2*upscale;
-        dst_pts.push_back(cv::Point2f(-edge_width_px, -edge_height_px));
-        dst_pts.push_back(cv::Point2f(play_width_px+edge_width_px, -edge_height_px));
-        dst_pts.push_back(cv::Point2f(play_width_px+edge_width_px, play_height_px+edge_height_px));
-        dst_pts.push_back(cv::Point2f(-edge_width_px, play_height_px+edge_height_px));
-
-        cv::Mat matrix = cv::getPerspectiveTransform(play_area, dst_pts);
-
-        cv::warpPerspective(flatFrame, transformedFrame, matrix, cv::Size(play_width_px, play_height_px));
-
-        // Threshold
-        cv::cvtColor(transformedFrame, hsvFrame, cv::COLOR_BGR2HSV);
-        cv::inRange(hsvFrame, cv::Scalar(lowH, lowS, lowV), cv::Scalar(highH, highS, highV), thresholdedFrame);
-
-        // Erode and dilate
-        cv::Mat ballFrame;
-        cv::Mat element = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3,3));
-        cv::erode(cv::Mat(thresholdedFrame, cv::Rect(0,0,30*upscale,play_height_px)), ballFrame, element);
-        cv::dilate(ballFrame, ballFrame, element);
-
-        // Find contours
-        vector<vector<cv::Point>> contours;
-        cv::findContours(ballFrame, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
-
-        // Find the largest contour
-        double maxArea = 0;
-        int largestContourIdx = -1;
-        for (int i = 0; i < contours.size(); i++) {
-            double area = cv::contourArea(contours[i]);
-            if (area > maxArea) {
-                maxArea = area;
-                largestContourIdx = i;
-            }
-        }
-
-        // Convert to color
-        cv::Mat ballFrameClr;
-        cv::cvtColor(ballFrame, ballFrameClr, cv::COLOR_GRAY2BGR);
-
-        // Calculate the centroid of the largest contour
-        if(largestContourIdx >= 0){
-            cv::Moments m = cv::moments(contours[largestContourIdx]);
-            cv::Point2f centroid(m.m10/m.m00, m.m01/m.m00);
-            cv::circle(ballFrameClr, centroid, 10, cv::Scalar(0, 0, 255), -1);
-
-            // Send move
-            /* linear_node.Motion.MoveWentDone(); // Clear move done register */
-            double ball_pos = (centroid.y / ballFrame.size().height-1.0/2) * play_height;
-            int target_cnts = lin_mid_cnts[three_bar] - ball_pos * lin_cm_to_cnts[three_bar];
-
-            if(ball_pos + play_height/2 < plr_gap[three_bar] + plr_width/2 + bumper_width){
-                target_cnts -= plr_gap[three_bar] * lin_cm_to_cnts[three_bar];
-            } else if(ball_pos + play_height/2 > play_height - (plr_gap[three_bar] + plr_width/2 + bumper_width)){
-                target_cnts += plr_gap[three_bar] * lin_cm_to_cnts[three_bar];
-            }
-             
-            if(abs(target_cnts-lin_pos_cnts[three_bar]) > 500){
-            /* if(false){ */
-                double est_duration_ms = lin_nodes[three_bar].get().Motion.MovePosnDurationMsec(abs(target_cnts-lin_pos_cnts[three_bar]));
-                lin_nodes[three_bar].get().Motion.MovePosnStart(target_cnts, true);
-                /* printf("Target cnts: %d, estimated time: %f.\n", target_cnts, est_duration_ms); */
-                timeout = mgr.TimeStampMsec() + est_duration_ms + 300;
-
-                /* while (!lin_nodes[three_bar].get().Motion.MoveIsDone()) { */
-                /*     if (cp_mgr.TimeStampMsec() > timeout) { */
-                /*         printf("Error: Timed out waiting for move to complete\n"); */
-                /*         lin_nodes[three_bar].get().EnableReq(false); */
-                /*         return -2; */
-                /*     } */
-                /* } */
-                lin_pos_cnts[three_bar] = target_cnts;
-            }
-        }
-
-        cv::imshow("Original", transformedFrame);
-        cv::imshow("Thresholded", thresholdedFrame);
-        cv::imshow("Ball area", ballFrameClr);
-
-        if ((cv::waitKey(30) & 0xFF) == 'q') // Press any key to exit
-            break;
-    }
-
-    cap.release();
-    cv::destroyAllWindows();
-
-    for(int i = 0; i < lin_nodes.size(); ++i){
-        lin_nodes[i].get().EnableReq(false);
-    }
-    for(int i = 0; i < rot_nodes.size(); ++i){
-        rot_nodes[i].get().EnableReq(false);
-    }
-
-    mgr.PortsClose(); 
-
-    return -1;
-#endif
 }
