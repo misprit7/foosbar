@@ -101,8 +101,7 @@ const double ball_rad = 3.475/2;
  * Vision Parameters
  ******************************************************************************/
 
-const double cal_offset_x = -4;
-const double cal_offset_y = 0.5;
+const double cal_offset[3] = {-4, 0.5, 0};
 
 /******************************************************************************
  * Motor Parameters

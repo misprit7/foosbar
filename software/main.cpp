@@ -33,8 +33,6 @@
 #include <nlohmann/json.hpp>
 
 using namespace std;
-/* using namespace cv; */
-using namespace sFnd;
 using json = nlohmann::json;
 
 /******************************************************************************
@@ -46,7 +44,7 @@ using json = nlohmann::json;
 #define ACC_LIM_RPM_PER_SEC    10000
 #define VEL_LIM_RPM            1000
 
-#define HOMING_TIMEOUT 5000
+#define HOMING_TIMEOUT 10000
 
 typedef enum state_t {
     state_defense,
@@ -58,9 +56,9 @@ typedef enum state_t {
  * Global Variables
  ******************************************************************************/
 // Might not want these to be global later, whatever for now
-SysManager mgr;
-vector<reference_wrapper<INode>> lin_nodes;
-vector<reference_wrapper<INode>> rot_nodes;
+sFnd::SysManager mgr;
+vector<reference_wrapper<sFnd::INode>> lin_nodes;
+vector<reference_wrapper<sFnd::INode>> rot_nodes;
 
 /******************************************************************************
  * Definitions
@@ -102,7 +100,7 @@ void set_speed_rot(int rod, double vel_deg_per_s, double acc_deg_per_s2){
 }
 
 void close_all(){
-    IPort&port = mgr.Ports(0);
+    sFnd::IPort&port = mgr.Ports(0);
     for(int i = 0; i < port.NodeCount(); ++i){
         port.Nodes(i).EnableReq(false);
     }
@@ -113,7 +111,7 @@ int motors_init(){
     vector<string> comHubPorts;
 
     // Identify hubs
-    SysManager::FindComHubPorts(comHubPorts);
+    sFnd::SysManager::FindComHubPorts(comHubPorts);
     printf("Found %zu SC Hubs\n", comHubPorts.size());
 
     // Find available ports
@@ -130,7 +128,7 @@ int motors_init(){
     // Open ports (hubs)
     mgr.PortsOpen(portCount);
 
-    IPort &port = mgr.Ports(0);
+    sFnd::IPort &port = mgr.Ports(0);
     printf(" Port[%d]: state=%d, nodes=%d\n",
         port.NetNumber(), port.OpenState(), port.NodeCount());
 
@@ -215,18 +213,18 @@ int motors_init(){
 
     // Set motion parameters
     for(int i = 0; i < lin_nodes.size(); ++i){
-        lin_nodes[i].get().AccUnit(INode::COUNTS_PER_SEC2);
-        lin_nodes[i].get().VelUnit(INode::COUNTS_PER_SEC);
+        lin_nodes[i].get().AccUnit(sFnd::INode::COUNTS_PER_SEC2);
+        lin_nodes[i].get().VelUnit(sFnd::INode::COUNTS_PER_SEC);
         lin_nodes[i].get().Info.Ex.Parameter(98,1);
-        /* set_speed_lin((rod_t)i, 100, 1000); */
-        set_speed_lin((rod_t)i, 50, 500);
+        set_speed_lin((rod_t)i, 100, 1000);
+        /* set_speed_lin((rod_t)i, 100, 500); */
         /* cout << "Set linear speed for " << rod_names[i] << endl; */
         lin_nodes[i].get().Motion.PosnMeasured.AutoRefresh(true);
         move_lin(i, lin_range_cm[i]/2);
     }
     for(int i = 0; i < rot_nodes.size(); ++i){
-        rot_nodes[i].get().AccUnit(INode::COUNTS_PER_SEC2);
-        rot_nodes[i].get().VelUnit(INode::COUNTS_PER_SEC);
+        rot_nodes[i].get().AccUnit(sFnd::INode::COUNTS_PER_SEC2);
+        rot_nodes[i].get().VelUnit(sFnd::INode::COUNTS_PER_SEC);
         if(i != goalie)
             rot_nodes[i].get().Info.Ex.Parameter(98,1);
         rot_nodes[i].get().Motion.PosnMeasured.AutoRefresh(true);
@@ -235,6 +233,7 @@ int motors_init(){
         move_rot(i, 0);
     }
 
+    return 0;
 }
 
 /******************************************************************************
@@ -279,11 +278,11 @@ int main(int argc, char** argv){
      * WebSocket Init
      **************************************************************************/
 
-    struct PerSocketData {
+    struct socket_data {
         /* User data */
     };
-    vector<uWS::WebSocket<false, true, PerSocketData>*> clients;
-    mutex clientsMutex;
+    vector<uWS::WebSocket<false, true, socket_data>*> clients;
+    mutex ws_mutex;
 
     // Webapp state
     double ws_pos[num_rod_t] = {0.5, 0.5, 0.5, 0.5};
@@ -294,11 +293,11 @@ int main(int argc, char** argv){
 
     struct uWS::Loop *loop;
     // Thread for web socket handling
-    thread uwsThread([&]() {
+    thread uws_thread([&]() {
         loop = uWS::Loop::get();
         // C++20 acting funky and makes me specificy every field
         uWS::App app;
-        app.ws<PerSocketData>("/position", {
+        app.ws<socket_data>("/position", {
             .compression = uWS::DISABLED,
             .maxPayloadLength = 16 * 1024 * 1024,
             .idleTimeout = 16,
@@ -309,9 +308,9 @@ int main(int argc, char** argv){
             .maxLifetime = 0,
 
             .upgrade = nullptr,
-            .open = [&clients, &clientsMutex](auto *ws) {
+            .open = [&clients, &ws_mutex](auto *ws) {
                 /* cout << "Connection! " << 9001 << endl; */
-                lock_guard<mutex> lock(clientsMutex);
+                lock_guard<mutex> lock(ws_mutex);
                 clients.push_back(ws);
                 /* nlohmann::json params = {}; */
                 /* for(int i = 0; i < num_rod_t; ++i){ */
@@ -320,9 +319,9 @@ int main(int argc, char** argv){
 
             },
             // Handles incoming packets
-            .message = [&clientsMutex, &ws_pos, &ws_pos_updated, &ws_rot, &ws_rot_updated, &ws_selection]
+            .message = [&ws_mutex, &ws_pos, &ws_pos_updated, &ws_rot, &ws_rot_updated, &ws_selection]
                     (auto *ws, string_view message, uWS::OpCode opCode) {
-                lock_guard<mutex> lock(clientsMutex);
+                lock_guard<mutex> lock(ws_mutex);
                 json packet = json::parse(message);
 
                 if(packet["type"].get<string>() == "selection"){
@@ -340,9 +339,9 @@ int main(int argc, char** argv){
             .drain = [](auto * /*ws*/) {},
             .ping = [](auto * /*ws*/, string_view) {},
             .pong = [](auto * /*ws*/, string_view) {},
-            .close = [&clients, &clientsMutex](auto* ws, int /*code*/, string_view /*message*/) {
+            .close = [&clients, &ws_mutex](auto* ws, int /*code*/, string_view /*message*/) {
                 /* cout << "Client disconnected" << endl; */
-                lock_guard<mutex> lock(clientsMutex);
+                lock_guard<mutex> lock(ws_mutex);
                 clients.erase(remove(clients.begin(), clients.end(), ws), clients.end());
             }
         }).listen(9001, [](auto *listen_socket) {
@@ -358,30 +357,55 @@ int main(int argc, char** argv){
      * QTM Init
      **************************************************************************/
 
+    mutex qtm_mutex;
+    vector<float> ball_pos = {0, 0, 0};
 
-    CRTProtocol rtProtocol;
+    thread qtm_thread([&qtm_mutex, &ball_pos]() {
+        CRTProtocol rtProtocol;
 
-    const char           serverAddr[] = "192.168.155.1";
-    const unsigned short basePort = 22222;
-    const int            majorVersion = 1;
-    const int            minorVersion = 19;
-    const bool           bigEndian = false;
+        const char           serverAddr[] = "192.168.155.1";
+        const unsigned short basePort = 22222;
+        const int            majorVersion = 1;
+        const int            minorVersion = 19;
+        const bool           bigEndian = false;
 
-    unsigned short udpPort = 6734;
-    
-    while (!rtProtocol.Connected())
-    {
-        if (!rtProtocol.Connect(serverAddr, basePort, &udpPort, majorVersion, minorVersion, bigEndian))
+        unsigned short udpPort = 6734;
+        
+        while (!rtProtocol.Connected())
         {
-            printf("rtProtocol.Connect: %s\n\n", rtProtocol.GetErrorString());
-            sleep(1);
+            if (!rtProtocol.Connect(serverAddr, basePort, &udpPort, majorVersion, minorVersion, bigEndian))
+            {
+                printf("rtProtocol.Connect: %s\n\n", rtProtocol.GetErrorString());
+                sleep(1);
+            }
         }
-    }
 
-    if(!rtProtocol.StreamFrames(CRTProtocol::RateAllFrames, 0, udpPort, nullptr, CRTProtocol::cComponent3dNoLabels)){
-        printf("Failed streaming!\n");
-        return -1;
-    }
+        if(!rtProtocol.StreamFrames(CRTProtocol::RateAllFrames, 0, udpPort, nullptr, CRTProtocol::cComponent3dNoLabels)){
+            printf("Failed streaming!\n");
+            return -1;
+        }
+
+        for(ever){
+            CRTPacket::EPacketType packetType;
+            if(rtProtocol.Receive(packetType, true, 0) == CNetwork::ResponseType::success){
+                if(packetType != CRTPacket::PacketData) continue;
+                lock_guard<mutex> lock(qtm_mutex);
+
+                CRTPacket *rtPacket = rtProtocol.GetRTPacket();
+
+                /* printf("Frame %d\n", rtPacket->GetFrameNumber()); */
+
+                unsigned int n;
+
+                rtPacket->Get3DNoLabelsMarker(0, ball_pos[0], ball_pos[1], ball_pos[2], n);
+                for(int i = 0; i < 3; ++i){
+                    ball_pos[i] /= 10; // convert to mm from cm
+                    ball_pos[i] -= cal_offset[i];
+                }
+
+            }
+        }
+    });
 
     /**************************************************************************
      * Clearpath Init
@@ -396,30 +420,23 @@ int main(int argc, char** argv){
 
     try{
 
-    CRTPacket::EPacketType packetType;
     cout << endl;
-    vector<float> ball_pos = {0, 0, 0};
     
+    state_t state = state_defense;
 
     for(ever){
         stringstream status;
 
-        while(rtProtocol.Receive(packetType, true, 0) == CNetwork::ResponseType::success){
-            if(packetType != CRTPacket::PacketData) continue;
-
-            CRTPacket *rtPacket = rtProtocol.GetRTPacket();
-
-            /* printf("Frame %d\n", rtPacket->GetFrameNumber()); */
-
-            unsigned int n;
-
-            rtPacket->Get3DNoLabelsMarker(0, ball_pos[0], ball_pos[1], ball_pos[2], n);
-
+        // Updates in a thread safe and fast way
+        vector<float> ball_pos_lcl;
+        {
+            lock_guard<mutex> lock(qtm_mutex);
+            ball_pos_lcl = ball_pos;
         }
-        status << ball_pos[0] << ", " << ball_pos[1] << ", " << ball_pos[2] << endl;
 
         vector<double> red_pos;
         vector<double> red_rot;
+        status << "Linear position: ";
         for(int i = 0; i < num_rod_t; ++i){
             red_pos.push_back(abs(lin_nodes[i].get().Motion.PosnMeasured.Value()
                     / lin_cm_to_cnts[i]));
@@ -427,6 +444,7 @@ int main(int argc, char** argv){
             status << lin_nodes[i].get().Motion.PosnMeasured.Value() << ", ";
         }
         status << endl;
+
         json positionData = {
             {"type", "pos"},
             {"bluepos", {
@@ -448,15 +466,16 @@ int main(int argc, char** argv){
                 red_rot[goalie],
             }},
             {"ballpos", {
-                (ball_pos[0]-cal_offset_x*10)/(play_height*10)+0.5,
-                (ball_pos[1]-cal_offset_y*10)/(play_width*10)+0.5,
+                ball_pos_lcl[0]/(play_height)+0.5,
+                ball_pos_lcl[1]/(play_width)+0.5,
                 0,
             }}
         };
+        status << "Ball position: " << ball_pos_lcl[0] << ", " << ball_pos_lcl[1] << ", " << ball_pos_lcl[2] << endl;
         string message = positionData.dump();
 
         {
-            lock_guard<mutex> lock(clientsMutex);
+            lock_guard<mutex> lock(ws_mutex);
             for (auto* client : clients) {
                 loop->defer([client, message](){
                     client->send(message, uWS::OpCode::TEXT);
@@ -467,33 +486,71 @@ int main(int argc, char** argv){
 
         if(controller){
             for(int i = 0; i < num_rod_t; ++i){
-                double ws_pos_local, ws_pos_updated_local, ws_rot_local, ws_rot_updated_local;
+                double ws_pos_lcl, ws_pos_updated_lcl, ws_rot_lcl, ws_rot_updated_lcl;
                 {
-                    lock_guard<mutex> lock(clientsMutex);
-                    ws_pos_local = ws_pos[i];
-                    ws_pos_updated_local = ws_pos_updated[i];
-                    ws_rot_local = ws_rot[i];
-                    ws_rot_updated_local = ws_rot_updated[i];
+                    lock_guard<mutex> lock(ws_mutex);
+                    ws_pos_lcl = ws_pos[i];
+                    ws_pos_updated_lcl = ws_pos_updated[i];
+                    ws_rot_lcl = ws_rot[i];
+                    ws_rot_updated_lcl = ws_rot_updated[i];
                 }
-                if(ws_pos_updated_local){
-                    move_lin(i, lin_range_cm[i] * ws_pos_local);
-                    ws_pos_updated_local = false;
+                if(ws_pos_updated_lcl){
+                    move_lin(i, lin_range_cm[i] * ws_pos_lcl);
+                    ws_pos_updated_lcl = false;
                 }
-                if(ws_rot_updated_local){
-                    move_rot(i, ws_rot_local / deg_to_rad);
-                    ws_rot_updated_local = false;
+                if(ws_rot_updated_lcl){
+                    move_rot(i, ws_rot_lcl / deg_to_rad);
+                    ws_rot_updated_lcl = false;
                 }
             }
-        } else {
-            
+        // Yes, else switch is just as much as a things as else if
+        } else switch(state){
+            case state_defense:
+                int front;
+                if(ball_pos_lcl[1] > 2*plr_dist) front = three_bar;
+                else if(ball_pos_lcl[1] > 0) front = five_bar;
+                else if(ball_pos_lcl[1] > -2*plr_dist) front = two_bar;
+
+                status << front << ": ";
+                for(int i = 0; i + front < num_rod_t; ++i){
+                    int rod = i + front;
+                    double target_cm = ball_pos_lcl[0] + play_height / 2;
+
+                    // Offset so no double blocking
+                    if(i == 1){
+                        target_cm += (ball_pos_lcl[0] > 0 ? -1 : 1) * plr_width;
+                    } else if (i == 2){
+                        target_cm += (ball_pos_lcl[0] > 0 ? 1 : -1) * plr_width;
+                    }
+
+                    int plr = floor(num_plrs[rod] * target_cm / play_height);
+
+                    // Override since switching is awkward
+                    if(rod == two_bar) plr = 0;
+                    
+                    plr = clamp(plr, 0, num_plrs[rod]);
+
+                    double plr_offset_cm = bumper_width + plr_width/2 + plr*plr_gap[rod];
+                    status << plr << ", " << plr_offset_cm << ", ";
+                    double move_cm = target_cm - plr_offset_cm;
+                    if(abs(move_cm - red_pos[rod]) > 0.3)
+                        move_lin(rod, target_cm - plr_offset_cm);
+                    
+                }
+                status << endl;
+
+                break;
+            case state_unknown:
+            default:
+                break;
         }
 
         print_status(status.str());
 
-        this_thread::sleep_for(chrono::microseconds(100'000));
+        this_thread::sleep_for(chrono::microseconds(5'000));
     }
 
-    }catch (mnErr& theErr)
+    } catch (sFnd::mnErr& theErr)
 	{
 		printf("Failed to disable Nodes n\n");
 		//This statement will print the address of the error, the error code (defined by the mnErr class), 
@@ -503,7 +560,7 @@ int main(int argc, char** argv){
 		return 0;  //This terminates the main program
 	}
 
-    uwsThread.join();
+    uws_thread.join();
 
     return 0;
 }
