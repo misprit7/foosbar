@@ -38,15 +38,18 @@ using namespace std;
 using json = nlohmann::json;
 
 /******************************************************************************
- * Defines
+ * Defines/const
  ******************************************************************************/
 
 #define ever ;;
 
-#define ACC_LIM_RPM_PER_SEC    10000
-#define VEL_LIM_RPM            1000
+const int init_vel_lin_cm_s = 100;
+const int init_accel_lin_cm_ss = 1000;
 
-#define HOMING_TIMEOUT 10000
+const int init_vel_rot_deg_s = 5000;
+const int init_accel_rot_deg_ss = 50000;
+
+const int homing_timeout_ms = 10000;
 
 typedef enum state_t {
     state_defense,
@@ -60,8 +63,7 @@ typedef enum state_t {
 
 // Might not want these to be global later, whatever for now
 sFnd::SysManager mgr;
-vector<reference_wrapper<sFnd::INode>> lin_nodes;
-vector<reference_wrapper<sFnd::INode>> rot_nodes;
+vector<reference_wrapper<sFnd::INode>> nodes[num_axis_t];
 
 /******************************************************************************
  * Definitions
@@ -84,22 +86,22 @@ void move_lin(int rod, double position_cm){
             min(lin_range_cnts[rod][0], lin_range_cnts[rod][1]),
             max(lin_range_cnts[rod][0], lin_range_cnts[rod][1])
     );
-    lin_nodes[rod].get().Motion.MovePosnStart(target_cnts, true);
+    nodes[lin][rod].get().Motion.MovePosnStart(target_cnts, true);
 }
 
 void move_rot(int rod, double position_deg){
     int target_cnts = rot_deg_to_cnts[rod] * position_deg;
-    rot_nodes[rod].get().Motion.MovePosnStart(target_cnts, true);
+    nodes[rot][rod].get().Motion.MovePosnStart(target_cnts, true);
 }
 
 void set_speed_lin(int rod, double vel_cm_per_s, double acc_cm_per_s2){
-    lin_nodes[rod].get().Motion.VelLimit = abs(vel_cm_per_s * lin_cm_to_cnts[rod]);
-    lin_nodes[rod].get().Motion.AccLimit = abs(acc_cm_per_s2 * lin_cm_to_cnts[rod]);
+    nodes[lin][rod].get().Motion.VelLimit = abs(vel_cm_per_s * lin_cm_to_cnts[rod]);
+    nodes[lin][rod].get().Motion.AccLimit = abs(acc_cm_per_s2 * lin_cm_to_cnts[rod]);
 }
 
 void set_speed_rot(int rod, double vel_deg_per_s, double acc_deg_per_s2){
-    rot_nodes[rod].get().Motion.VelLimit = vel_deg_per_s * rot_deg_to_cnts[rod];
-    rot_nodes[rod].get().Motion.AccLimit = acc_deg_per_s2 * rot_deg_to_cnts[rod];
+    nodes[rot][rod].get().Motion.VelLimit = vel_deg_per_s * rot_deg_to_cnts[rod];
+    nodes[rot][rod].get().Motion.AccLimit = acc_deg_per_s2 * rot_deg_to_cnts[rod];
 }
 
 void close_all(){
@@ -145,11 +147,11 @@ int motors_init(){
         for(int j = 0; j < port.NodeCount(); ++j){
             string name = port.Nodes(j).Info.UserID.Value();
             if(!lin_found && lin_name == name){
-                lin_nodes.push_back(port.Nodes(j));
+                nodes[lin].push_back(port.Nodes(j));
                 lin_found = true;
             }
             if(!rot_found && rot_name == name){
-                rot_nodes.push_back(port.Nodes(j));
+                nodes[rot].push_back(port.Nodes(j));
                 rot_found = true;
             }
         }
@@ -160,27 +162,27 @@ int motors_init(){
     }
 
     // Enable nodes
-    for(int i = 0; i < lin_nodes.size(); ++i){
-        lin_nodes[i].get().Status.AlertsClear();
-        lin_nodes[i].get().Motion.NodeStopClear();
-        lin_nodes[i].get().EnableReq(true);
+    for(int i = 0; i < nodes[lin].size(); ++i){
+        nodes[lin][i].get().Status.AlertsClear();
+        nodes[lin][i].get().Motion.NodeStopClear();
+        nodes[lin][i].get().EnableReq(true);
     }
 
-    for(int i = 0; i < rot_nodes.size(); ++i){
-        rot_nodes[i].get().Status.AlertsClear();
-        rot_nodes[i].get().Motion.NodeStopClear();
-        rot_nodes[i].get().EnableReq(true);
+    for(int i = 0; i < nodes[rot].size(); ++i){
+        nodes[rot][i].get().Status.AlertsClear();
+        nodes[rot][i].get().Motion.NodeStopClear();
+        nodes[rot][i].get().EnableReq(true);
     }
 
     // Wait for enable
     double timeout = mgr.TimeStampMsec() + 2000;
     for(ever){
         bool ready = true;
-        for(int i = 0; i < lin_nodes.size(); ++i){
-            if(!lin_nodes[i].get().Motion.IsReady()) ready = false;
+        for(int i = 0; i < nodes[lin].size(); ++i){
+            if(!nodes[lin][i].get().Motion.IsReady()) ready = false;
         }
-        for(int i = 0; i < rot_nodes.size(); ++i){
-            if(!rot_nodes[i].get().Motion.IsReady()) ready = false;
+        for(int i = 0; i < nodes[rot].size(); ++i){
+            if(!nodes[rot][i].get().Motion.IsReady()) ready = false;
         }
         if(ready) break;
         if (mgr.TimeStampMsec() > timeout) {
@@ -191,19 +193,19 @@ int motors_init(){
 
 
     // Start homing
-    for(int i = 0; i < lin_nodes.size(); ++i){
-        if(!lin_nodes[i].get().Motion.Homing.HomingValid()) continue;
-        if(!lin_nodes[i].get().Motion.Homing.WasHomed()) 
-            lin_nodes[i].get().Motion.Homing.Initiate();
+    for(int i = 0; i < nodes[lin].size(); ++i){
+        if(!nodes[lin][i].get().Motion.Homing.HomingValid()) continue;
+        if(!nodes[lin][i].get().Motion.Homing.WasHomed()) 
+            nodes[lin][i].get().Motion.Homing.Initiate();
     }
 
     // Wait for homing
-    timeout = mgr.TimeStampMsec() + HOMING_TIMEOUT;
+    timeout = mgr.TimeStampMsec() + homing_timeout_ms;
     for(ever){
         bool homed = true;
-        for(int i = 0; i < lin_nodes.size(); ++i){
-            if(!lin_nodes[i].get().Motion.Homing.HomingValid()) continue;
-            if(!lin_nodes[i].get().Motion.Homing.WasHomed()) homed = false;
+        for(int i = 0; i < nodes[lin].size(); ++i){
+            if(!nodes[lin][i].get().Motion.Homing.HomingValid()) continue;
+            if(!nodes[lin][i].get().Motion.Homing.WasHomed()) homed = false;
         }
         if(homed) break;
         
@@ -215,24 +217,24 @@ int motors_init(){
     }
 
     // Set motion parameters
-    for(int i = 0; i < lin_nodes.size(); ++i){
-        lin_nodes[i].get().AccUnit(sFnd::INode::COUNTS_PER_SEC2);
-        lin_nodes[i].get().VelUnit(sFnd::INode::COUNTS_PER_SEC);
-        lin_nodes[i].get().Info.Ex.Parameter(98,1);
-        set_speed_lin((rod_t)i, 100, 1000);
+    for(int i = 0; i < nodes[lin].size(); ++i){
+        nodes[lin][i].get().AccUnit(sFnd::INode::COUNTS_PER_SEC2);
+        nodes[lin][i].get().VelUnit(sFnd::INode::COUNTS_PER_SEC);
+        nodes[lin][i].get().Info.Ex.Parameter(98,1);
+        set_speed_lin((rod_t)i, init_vel_lin_cm_s, init_accel_lin_cm_ss);
         /* set_speed_lin((rod_t)i, 100, 500); */
         /* cout << "Set linear speed for " << rod_names[i] << endl; */
-        lin_nodes[i].get().Motion.PosnMeasured.AutoRefresh(true);
+        nodes[lin][i].get().Motion.PosnMeasured.AutoRefresh(true);
         move_lin(i, lin_range_cm[i]/2);
     }
-    for(int i = 0; i < rot_nodes.size(); ++i){
-        rot_nodes[i].get().AccUnit(sFnd::INode::COUNTS_PER_SEC2);
-        rot_nodes[i].get().VelUnit(sFnd::INode::COUNTS_PER_SEC);
+    for(int i = 0; i < nodes[rot].size(); ++i){
+        nodes[rot][i].get().AccUnit(sFnd::INode::COUNTS_PER_SEC2);
+        nodes[rot][i].get().VelUnit(sFnd::INode::COUNTS_PER_SEC);
         if(i != goalie)
-            rot_nodes[i].get().Info.Ex.Parameter(98,1);
-        rot_nodes[i].get().Motion.PosnMeasured.AutoRefresh(true);
+            nodes[rot][i].get().Info.Ex.Parameter(98,1);
+        nodes[rot][i].get().Motion.PosnMeasured.AutoRefresh(true);
         /* set_speed_rot((rod_t)i, 10000, 100000); */
-        set_speed_rot((rod_t)i, 5000, 50000);
+        set_speed_rot((rod_t)i, init_vel_rot_deg_s, init_accel_rot_deg_ss);
         move_rot(i, 0);
     }
 
@@ -316,10 +318,10 @@ int main(int argc, char** argv){
     mutex ws_mutex;
 
     // Webapp state
-    double ws_pos[num_rod_t] = {0.5, 0.5, 0.5, 0.5};
-    double ws_rot[num_rod_t] = {0, 0, 0, 0};
-    bool ws_pos_updated[num_rod_t] = {0};
-    bool ws_rot_updated[num_rod_t] = {0};
+    double tgt_pos[num_rod_t] = {0.5, 0.5, 0.5, 0.5};
+    double tgt_rot[num_rod_t] = {0, 0, 0, 0};
+    bool tgt_pos_updated[num_rod_t] = {0};
+    bool tgt_rot_updated[num_rod_t] = {0};
     int ws_selection = -1;
 
     struct uWS::Loop *loop;
@@ -350,7 +352,7 @@ int main(int argc, char** argv){
 
             },
             // Handles incoming packets
-            .message = [&ws_mutex, &ws_pos, &ws_pos_updated, &ws_rot, &ws_rot_updated, &ws_selection]
+            .message = [&ws_mutex, &tgt_pos, &tgt_pos_updated, &tgt_rot, &tgt_rot_updated, &ws_selection]
                     (auto *ws, string_view message, uWS::OpCode opCode) {
                 lock_guard<mutex> lock(ws_mutex);
                 json packet = json::parse(message);
@@ -360,10 +362,10 @@ int main(int argc, char** argv){
 
                 } else if(packet["type"].get<string>() == "move"){
                     if(ws_selection >= 0 && ws_selection <=num_rod_t){
-                        ws_pos[ws_selection] = clamp(ws_pos[ws_selection]+packet["pos"].get<double>(), 0.0, 1.0);
-                        ws_rot[ws_selection] = ws_rot[ws_selection]+packet["rot"].get<double>();
-                        ws_pos_updated[ws_selection] = abs(packet["pos"].get<double>()) > 0.001;
-                        ws_rot_updated[ws_selection] = abs(packet["rot"].get<double>()) > 0.001;
+                        tgt_pos[ws_selection] = clamp(tgt_pos[ws_selection]+packet["pos"].get<double>(), 0.0, 1.0);
+                        tgt_rot[ws_selection] = tgt_rot[ws_selection]+packet["rot"].get<double>();
+                        tgt_pos_updated[ws_selection] = abs(packet["pos"].get<double>()) > 0.001;
+                        tgt_rot_updated[ws_selection] = abs(packet["rot"].get<double>()) > 0.001;
                     }
                 }
             },
@@ -474,13 +476,48 @@ int main(int argc, char** argv){
     int init_err = motors_init();
     if(init_err < 0) return init_err;
 
-    mutex motors_mutex;
+    mutex mtr_mutex;
+
+    struct motor_cmd {
+        // NAN for unchanged
+        double pos;
+        double speed;
+        double accel;
+    };
+    const struct motor_cmd null_cmd = {NAN, NAN, NAN};
 
     /* priority_queue<pair<int, function<void(void)>>> motor_queue; */
-    queue<function<void(void)>> motor_queue;
+    /* queue<function<void(void)>> motor_queue; */
+    vector<motor_cmd> mtr_cmds[num_axis_t];
+    vector<double> mtr_t_last_update[num_axis_t];
+    vector<double> mtr_t_last_cmd[num_axis_t];
 
-    thread motors_thread([&motors_mutex]() {
+    vector<motor_cmd> mtr_last_cmd[num_axis_t];
 
+    for(int a = 0; a < num_axis_t; ++a){
+        for(int r = 0; r < num_rod_t; ++r){
+            mtr_cmds[a].push_back(null_cmd);
+            mtr_t_last_update[a].push_back(mgr.TimeStampMsec());
+            mtr_t_last_cmd[a].push_back(mgr.TimeStampMsec());
+            struct motor_cmd mtr_last_cmd;
+            if(a == rot)
+                mtr_last_cmd = {lin_range_cm[r]/2, init_vel_lin_cm_s, init_accel_lin_cm_ss};
+            else
+                mtr_last_cmd = {0, init_vel_rot_deg_s, init_accel_rot_deg_ss};
+        }
+    }
+
+    // This is the only thread that should ever query motors directly
+    thread mtr_thread([&mtr_mutex]() {
+        for(int a = 0; a < num_axis_t; ++a){
+            for(int r = 0; r < num_rod_t; ++r){
+                // Awkward to make sure thread safe
+                vector<function<void(void)>> cmds;
+                {
+                    lock_guard<mutex> lock(mtr_mutex);
+                }
+            }
+        }
     });
 
     /**************************************************************************
@@ -519,7 +556,7 @@ int main(int argc, char** argv){
         status << "Linear position: ";
         for(int i = 0; i < num_rod_t; ++i){
             if(i == goalie)
-                red_pos.push_back(abs(lin_nodes[i].get().Motion.PosnMeasured.Value()
+                red_pos.push_back(abs(nodes[lin][i].get().Motion.PosnMeasured.Value()
                         / lin_cm_to_cnts[i]));
             else 
                 red_pos.push_back(0);
@@ -574,10 +611,10 @@ int main(int argc, char** argv){
                 double ws_pos_lcl, ws_pos_updated_lcl, ws_rot_lcl, ws_rot_updated_lcl;
                 {
                     lock_guard<mutex> lock(ws_mutex);
-                    ws_pos_lcl = ws_pos[i];
-                    ws_pos_updated_lcl = ws_pos_updated[i];
-                    ws_rot_lcl = ws_rot[i];
-                    ws_rot_updated_lcl = ws_rot_updated[i];
+                    ws_pos_lcl = tgt_pos[i];
+                    ws_pos_updated_lcl = tgt_pos_updated[i];
+                    ws_rot_lcl = tgt_rot[i];
+                    ws_rot_updated_lcl = tgt_rot_updated[i];
                 }
                 if(ws_pos_updated_lcl){
                     move_lin(i, lin_range_cm[i] * ws_pos_lcl);
