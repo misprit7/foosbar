@@ -20,6 +20,7 @@
 #include <iostream>
 #include <algorithm>
 #include <deque>
+#include <queue>
 
 #include "physical_params.hpp"
 
@@ -119,7 +120,7 @@ int motors_init(){
     // Find available ports
     size_t portCount = 0;
     for (portCount = 0; portCount < comHubPorts.size() && portCount < NET_CONTROLLER_MAX; portCount++) {
-        mgr.ComHubPort(portCount, comHubPorts[portCount].c_str());
+        mgr.ComHubPort(portCount, comHubPorts[portCount].c_str(), MN_BAUD_48X);
     }
 
     if (portCount < 0) {
@@ -298,6 +299,9 @@ int main(int argc, char** argv){
             controller = true;
         } else if(cmd == "--no-motors"){
             no_motors = true;
+        } else {
+            cout << "Unrecognized argument: " << cmd << endl;
+            return -1;
         }
     }
 
@@ -416,7 +420,7 @@ int main(int argc, char** argv){
         
         deque<pair<double, vector<double>>> pos_buffer;
         const int buf_cap = vision_fps;
-        const double gamma = 1.5; // Higher = more noise, less latency
+        const double gamma = 0.1; // Higher = more noise, less latency
         for(ever){
             CRTPacket::EPacketType packetType;
             if(rtProtocol.Receive(packetType, true, 0) == CNetwork::ResponseType::success){
@@ -427,20 +431,21 @@ int main(int argc, char** argv){
 
                 if(rtPacket->Get3DNoLabelsMarkerCount() < 1){
                     // Assume ball stays in place
+                    if(pos_buffer.size() <= 0) continue;
                     pos_buffer.push_front({mgr.TimeStampMsec(), pos_buffer[0].second});
-                    continue;
-                }
+                } else {
 
-                // Not read directly since we want doubles not floats
-                vector<float> ball_pos_tmp = {0, 0, 0};
-                unsigned int n;
-                rtPacket->Get3DNoLabelsMarker(0, ball_pos_tmp[0], ball_pos_tmp[1], ball_pos_tmp[2], n);
-                for(int i = 0; i < 3; ++i){
-                    ball_pos[i] = ball_pos_tmp[i] / 10; // convert to mm from cm
-                    ball_pos[i] -= cal_offset[i];
-                }
+                    // Not read directly since we want doubles not floats
+                    vector<float> ball_pos_tmp = {0, 0, 0};
+                    unsigned int n;
+                    rtPacket->Get3DNoLabelsMarker(0, ball_pos_tmp[0], ball_pos_tmp[1], ball_pos_tmp[2], n);
+                    for(int i = 0; i < 3; ++i){
+                        ball_pos[i] = ball_pos_tmp[i] / 10; // convert to mm from cm
+                        ball_pos[i] -= cal_offset[i];
+                    }
 
-                pos_buffer.push_front({mgr.TimeStampMsec(), ball_pos});
+                    pos_buffer.push_front({mgr.TimeStampMsec(), ball_pos});
+                }
                 if(pos_buffer.size() < buf_cap) continue;
                 pos_buffer.pop_back();
                 // EWMA
@@ -463,11 +468,20 @@ int main(int argc, char** argv){
     });
 
     /**************************************************************************
-     * Clearpath Init
+     * Clearpath thread
      **************************************************************************/
 
     int init_err = motors_init();
     if(init_err < 0) return init_err;
+
+    mutex motors_mutex;
+
+    /* priority_queue<pair<int, function<void(void)>>> motor_queue; */
+    queue<function<void(void)>> motor_queue;
+
+    thread motors_thread([&motors_mutex]() {
+
+    });
 
     /**************************************************************************
      * Main Event Loop
@@ -487,6 +501,8 @@ int main(int argc, char** argv){
 
         if(should_terminate()) break;
 
+        double start_t = mgr.TimeStampMsec();
+
         stringstream status;
 
         // Updates in a thread safe and fast way
@@ -502,10 +518,14 @@ int main(int argc, char** argv){
         vector<double> red_rot;
         status << "Linear position: ";
         for(int i = 0; i < num_rod_t; ++i){
-            red_pos.push_back(abs(lin_nodes[i].get().Motion.PosnMeasured.Value()
-                    / lin_cm_to_cnts[i]));
-            red_rot.push_back(rot_nodes[i].get().Motion.PosnMeasured.Value() / rot_rad_to_cnts[i]);
-            status << lin_nodes[i].get().Motion.PosnMeasured.Value() << ", ";
+            if(i == goalie)
+                red_pos.push_back(abs(lin_nodes[i].get().Motion.PosnMeasured.Value()
+                        / lin_cm_to_cnts[i]));
+            else 
+                red_pos.push_back(0);
+            /* red_rot.push_back(rot_nodes[i].get().Motion.PosnMeasured.Value() / rot_rad_to_cnts[i]); */
+            red_rot.push_back(0);
+            status << red_pos[i] << ", ";
         }
         status << endl;
 
@@ -549,9 +569,7 @@ int main(int argc, char** argv){
             }
         }
 
-        if(no_motors){
-            // Do nothing for now
-        } else if(controller){
+        if(controller){
             for(int i = 0; i < num_rod_t; ++i){
                 double ws_pos_lcl, ws_pos_updated_lcl, ws_rot_lcl, ws_rot_updated_lcl;
                 {
@@ -581,7 +599,7 @@ int main(int argc, char** argv){
                 front = goalie;
 
                 /* ball_vel_lcl = {20,-200,0}; */
-                bool shot_firing = ball_vel_lcl[1] < -10;
+                bool shot_firing = ball_vel_lcl[1] < -100;
 
                 status << front << ": ";
                 for(int i = 0; i + front < num_rod_t; ++i){
@@ -592,8 +610,8 @@ int main(int argc, char** argv){
                         double rod_y = -rod_gap * 3.5;
                         double dt = (rod_y - ball_pos_lcl[1]) / ball_vel_lcl[1];
                         target_cm += ball_vel_lcl[0] * dt;
-                        status << "Target: " << target_cm << ", Ball: " << ball_pos_lcl[0]+play_height/2 << ", dt: " << dt << endl;
                     }
+                    status << "Target: " << target_cm << ", Ball: " << ball_pos_lcl[0]+play_height/2 << endl;
                     // Offset so no double blocking
                     if(i == 1){
                         target_cm += (ball_pos_lcl[0] > 0 ? -1 : 1) * plr_width;
@@ -613,9 +631,11 @@ int main(int argc, char** argv){
                     double move_cm = target_cm - plr_offset_cm;
 
                     // Hysteresis to prevent rapid commands
-                    if(abs(move_cm - red_pos[rod]) > 0.5){
+                    if(abs(move_cm - red_pos[rod]) > 0.5 && !no_motors){
                         if(!shot_firing){
-                            set_speed_lin(rod, 25, 250);
+                            /* set_speed_lin(rod, 25, 250); */
+                            set_speed_lin(rod, 75, 750);
+                            /* set_speed_lin(rod, 0, 0); */
                         } else {
                             set_speed_lin(rod, 150, 1500);
                         }
@@ -633,9 +653,12 @@ int main(int argc, char** argv){
                 break;
         }
 
-        print_status(status.str());
+        /* print_status(status.str()); */
+        /* cout << ball_pos_lcl[0] << ", " << ball_pos_lcl[1] << "; v: " << ball_vel_lcl[0] << ", " << ball_vel_lcl[1] << endl; */
+        cout << mgr.TimeStampMsec() - start_t << endl;
 
-        this_thread::sleep_for(chrono::microseconds(5'000));
+        /* this_thread::sleep_for(chrono::microseconds(5'000)); */
+        this_thread::sleep_for(chrono::microseconds(500));
     }
 
     } catch (sFnd::mnErr& theErr)
