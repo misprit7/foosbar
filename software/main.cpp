@@ -19,6 +19,7 @@
 #include <csignal>
 #include <iostream>
 #include <algorithm>
+#include <deque>
 
 #include "physical_params.hpp"
 
@@ -55,6 +56,7 @@ typedef enum state_t {
 /******************************************************************************
  * Global Variables
  ******************************************************************************/
+
 // Might not want these to be global later, whatever for now
 sFnd::SysManager mgr;
 vector<reference_wrapper<sFnd::INode>> lin_nodes;
@@ -240,12 +242,36 @@ int motors_init(){
  * Misc
  ******************************************************************************/
 
+bool should_terminate(){
+    fd_set set;
+    struct timeval timeout;
+
+    // Initialize the file descriptor set
+    FD_ZERO(&set);
+    FD_SET(STDIN_FILENO, &set);
+
+    // Initialize the timeout data structure
+    timeout.tv_sec = 0;  // Wait for up to 1 second
+    timeout.tv_usec = 500;
+
+    // Check if input is available
+    if (select(STDIN_FILENO + 1, &set, NULL, NULL, &timeout) > 0) {
+        string command;
+        cin >> command;
+        if (command == "q") {
+            return true;
+        }
+    }
+    return false;
+}
+
 void signal_handler(int signal) {
     cout << "Got interrupt signal, closing..." << endl;
     if (signal == SIGINT) {
-        close_all();
-        cout << "Motors disabled" << endl;
-        exit(signal);
+        /* close_all(); */
+        /* cout << "Motors disabled" << endl; */
+        /* exit(signal); */
+        /* quit = true; */
     }
 }
 
@@ -264,13 +290,14 @@ int main(int argc, char** argv){
     /**************************************************************************
      * Setup
      **************************************************************************/
-    bool controller = false;
-    std::signal(SIGINT, signal_handler);
+    bool controller = false, no_motors = false;
 
     for(int i = 1; i < argc; ++i){
         string cmd(argv[i]);
         if(cmd == "--controller"){
             controller = true;
+        } else if(cmd == "--no-motors"){
+            no_motors = true;
         }
     }
 
@@ -358,9 +385,10 @@ int main(int argc, char** argv){
      **************************************************************************/
 
     mutex qtm_mutex;
-    vector<float> ball_pos = {0, 0, 0};
+    vector<double> ball_pos = {0, 0, 0};
+    vector<double> ball_vel = {0, 0, 0};
 
-    thread qtm_thread([&qtm_mutex, &ball_pos]() {
+    thread qtm_thread([&qtm_mutex, &ball_pos, &ball_vel]() {
         CRTProtocol rtProtocol;
 
         const char           serverAddr[] = "192.168.155.1";
@@ -385,6 +413,10 @@ int main(int argc, char** argv){
             return -1;
         }
 
+        
+        deque<pair<double, vector<double>>> pos_buffer;
+        const int buf_cap = vision_fps;
+        const double gamma = 1.5; // Higher = more noise, less latency
         for(ever){
             CRTPacket::EPacketType packetType;
             if(rtProtocol.Receive(packetType, true, 0) == CNetwork::ResponseType::success){
@@ -393,14 +425,37 @@ int main(int argc, char** argv){
 
                 CRTPacket *rtPacket = rtProtocol.GetRTPacket();
 
-                /* printf("Frame %d\n", rtPacket->GetFrameNumber()); */
+                if(rtPacket->Get3DNoLabelsMarkerCount() < 1){
+                    // Assume ball stays in place
+                    pos_buffer.push_front({mgr.TimeStampMsec(), pos_buffer[0].second});
+                    continue;
+                }
 
+                // Not read directly since we want doubles not floats
+                vector<float> ball_pos_tmp = {0, 0, 0};
                 unsigned int n;
-
-                rtPacket->Get3DNoLabelsMarker(0, ball_pos[0], ball_pos[1], ball_pos[2], n);
+                rtPacket->Get3DNoLabelsMarker(0, ball_pos_tmp[0], ball_pos_tmp[1], ball_pos_tmp[2], n);
                 for(int i = 0; i < 3; ++i){
-                    ball_pos[i] /= 10; // convert to mm from cm
+                    ball_pos[i] = ball_pos_tmp[i] / 10; // convert to mm from cm
                     ball_pos[i] -= cal_offset[i];
+                }
+
+                pos_buffer.push_front({mgr.TimeStampMsec(), ball_pos});
+                if(pos_buffer.size() < buf_cap) continue;
+                pos_buffer.pop_back();
+                // EWMA
+                double num[3] = {0,0,0}, denom = 0;
+                for(int i = 0; i < pos_buffer.size()-1; ++i){
+                    double scale = exp(-gamma * i);
+                    denom += scale;
+                    for(int j = 0; j < 3; ++j){
+                        num[j] += (pos_buffer[i].second[j] - pos_buffer[i+1].second[j]) * scale
+                            / ((pos_buffer[i].first - pos_buffer[i+1].first)/1000);
+                    }
+                }
+                for(int j = 0; j < 3; ++j){
+                    ball_vel[j] = num[j] / denom;
+                    /* cout << num[j] << ", " << denom << endl; */
                 }
 
             }
@@ -424,14 +479,23 @@ int main(int argc, char** argv){
     
     state_t state = state_defense;
 
+    for(int i = 0; i < 3; ++i){
+        move_rot(i, 90);
+    }
+
     for(ever){
+
+        if(should_terminate()) break;
+
         stringstream status;
 
         // Updates in a thread safe and fast way
-        vector<float> ball_pos_lcl;
+        vector<double> ball_pos_lcl;
+        vector<double> ball_vel_lcl;
         {
             lock_guard<mutex> lock(qtm_mutex);
             ball_pos_lcl = ball_pos;
+            ball_vel_lcl = ball_vel;
         }
 
         vector<double> red_pos;
@@ -472,6 +536,7 @@ int main(int argc, char** argv){
             }}
         };
         status << "Ball position: " << ball_pos_lcl[0] << ", " << ball_pos_lcl[1] << ", " << ball_pos_lcl[2] << endl;
+        status << "Ball velocity: " << ball_vel_lcl[0] << ", " << ball_vel_lcl[1] << ", " << ball_vel_lcl[2] << endl;
         string message = positionData.dump();
 
         {
@@ -484,7 +549,9 @@ int main(int argc, char** argv){
             }
         }
 
-        if(controller){
+        if(no_motors){
+            // Do nothing for now
+        } else if(controller){
             for(int i = 0; i < num_rod_t; ++i){
                 double ws_pos_lcl, ws_pos_updated_lcl, ws_rot_lcl, ws_rot_updated_lcl;
                 {
@@ -506,16 +573,27 @@ int main(int argc, char** argv){
         // Yes, else switch is just as much as a things as else if
         } else switch(state){
             case state_defense:
+            {
                 int front;
-                if(ball_pos_lcl[1] > 2*plr_dist) front = three_bar;
-                else if(ball_pos_lcl[1] > 0) front = five_bar;
-                else if(ball_pos_lcl[1] > -2*plr_dist) front = two_bar;
+                /* if(ball_pos_lcl[1] > 2*plr_dist) front = three_bar; */
+                /* else if(ball_pos_lcl[1] > 0) front = five_bar; */
+                /* else if(ball_pos_lcl[1] > -2*plr_dist) front = two_bar; */
+                front = goalie;
+
+                /* ball_vel_lcl = {20,-200,0}; */
+                bool shot_firing = ball_vel_lcl[1] < -10;
 
                 status << front << ": ";
                 for(int i = 0; i + front < num_rod_t; ++i){
                     int rod = i + front;
-                    double target_cm = ball_pos_lcl[0] + play_height / 2;
 
+                    double target_cm = ball_pos_lcl[0] + play_height / 2;
+                    if(shot_firing && rod == goalie){
+                        double rod_y = -rod_gap * 3.5;
+                        double dt = (rod_y - ball_pos_lcl[1]) / ball_vel_lcl[1];
+                        target_cm += ball_vel_lcl[0] * dt;
+                        status << "Target: " << target_cm << ", Ball: " << ball_pos_lcl[0]+play_height/2 << ", dt: " << dt << endl;
+                    }
                     // Offset so no double blocking
                     if(i == 1){
                         target_cm += (ball_pos_lcl[0] > 0 ? -1 : 1) * plr_width;
@@ -533,13 +611,23 @@ int main(int argc, char** argv){
                     double plr_offset_cm = bumper_width + plr_width/2 + plr*plr_gap[rod];
                     status << plr << ", " << plr_offset_cm << ", ";
                     double move_cm = target_cm - plr_offset_cm;
-                    if(abs(move_cm - red_pos[rod]) > 0.3)
+
+                    // Hysteresis to prevent rapid commands
+                    if(abs(move_cm - red_pos[rod]) > 0.5){
+                        if(!shot_firing){
+                            set_speed_lin(rod, 25, 250);
+                        } else {
+                            set_speed_lin(rod, 150, 1500);
+                        }
                         move_lin(rod, target_cm - plr_offset_cm);
+                    }
                     
                 }
                 status << endl;
 
+
                 break;
+            }
             case state_unknown:
             default:
                 break;
@@ -560,7 +648,9 @@ int main(int argc, char** argv){
 		return 0;  //This terminates the main program
 	}
 
-    uws_thread.join();
+    cout << "Got terminate command, quitting..." << endl;
+    close_all();
+    terminate();
 
     return 0;
 }

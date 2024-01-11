@@ -78,7 +78,7 @@ const double plr_width = 3.073;
 
 const double bumper_width = 2.496;
 
-const double plr_dist = 101.7/7;
+const double rod_gap = 101.7/7;
 
 // Slightly more accurate to measure multiple then divide
 const double plr_gap[] = {
@@ -102,6 +102,7 @@ const double ball_rad = 3.475/2;
  ******************************************************************************/
 
 const double cal_offset[3] = {-4, 0.5, 0};
+const int vision_fps = 200;
 
 /******************************************************************************
  * Motor Parameters
