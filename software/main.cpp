@@ -54,6 +54,12 @@ const int homing_timeout_ms = 10000;
 
 typedef enum state_t {
     state_defense,
+    state_shot_defense,
+    state_shot_offense,
+    state_goalie_possess,
+    state_two_bar_possess,
+    state_five_bar_possess,
+    state_three_bar_possess,
     state_unknown,
     num_state_t
 } state_t;
@@ -283,10 +289,11 @@ void signal_handler(int signal) {
     }
 }
 
-void print_status(string s){
-    for(char c : s)
-        if(c == '\n')
-            cout << "\033[A\33[2K\r";
+void print_status(string s, bool erase = true){
+    if(erase)
+        for(char c : s)
+            if(c == '\n')
+                cout << "\033[A\33[2K\r";
     cout << s;
 }
 
@@ -427,7 +434,7 @@ int main(int argc, char** argv){
         
         deque<pair<double, vector<double>>> pos_buffer;
         const int buf_cap = vision_fps;
-        const double gamma = 0.1; // Higher = more noise, less latency
+        const double gamma = 0.5; // Higher = more noise, less latency
         for(ever){
             CRTPacket::EPacketType packetType;
             if(rtProtocol.Receive(packetType, true, 0) == CNetwork::ResponseType::success){
@@ -461,14 +468,32 @@ int main(int argc, char** argv){
                     double scale = exp(-gamma * i);
                     denom += scale;
                     for(int j = 0; j < 3; ++j){
-                        num[j] += (pos_buffer[i].second[j] - pos_buffer[i+1].second[j]) * scale
-                            / ((pos_buffer[i].first - pos_buffer[i+1].first)/1000);
+                        // Important: the first one seems like it should be better, but it actually isn't
+                        // Network delay is unpredictable, so sometimes timing we get it doesn't represent
+                        // timing the video was captured. This can give extraneous high spikes in velocity
+                        /* num[j] += (pos_buffer[i].second[j] - pos_buffer[i+1].second[j]) * scale */
+                        /*     / ((pos_buffer[i].first - pos_buffer[i+1].first)/1000); */
+                        num[j] += (pos_buffer[i].second[j] - pos_buffer[i+1].second[j]) * scale * vision_fps;
                     }
                 }
                 for(int j = 0; j < 3; ++j){
                     ball_vel[j] = num[j] / denom;
-                    /* cout << num[j] << ", " << denom << endl; */
                 }
+                // Sometimes useful for debugging by printing out buffer
+                /* if(abs(ball_vel[1]) > 75){ */
+                /*     for(int i = 0; i < pos_buffer.size()-1; ++i){ */
+                /*         cout << pos_buffer[i].first << "; "; */
+                /*         for(int j = 0; j < 3; ++j){ */
+                /*             cout << pos_buffer[i].second[j] << ", "; */
+                /*         } */
+                /*         cout << endl; */
+                /*     } */
+                /*     cout << endl; */
+                /*     for(int j = 0; j < 3; ++j){ */
+                /*         cout << num[j] << ", " << denom << ", " << ball_vel[j] << endl; */
+                /*     } */
+                /*     terminate(); */
+                /* } */
 
             }
         }
@@ -533,9 +558,6 @@ int main(int argc, char** argv){
                         lock_guard<mutex> lock(mtr_mutex);
                         motor_cmd cmd = mtr_cmds[a][r];
                         motor_cmd last_cmd = mtr_last_cmd[a][r];
-                        /* if(r == goalie && a == lin){ */
-                        /*     cout << cmd.pos << ", " << cmd.vel << ", " << cmd.accel << endl; */
-                        /* } */
 
                         if((!isnan(cmd.vel) && abs(cmd.vel - last_cmd.vel) > eps)
                                 || (!isnan(cmd.accel) && abs(cmd.accel - last_cmd.accel) > eps)){
@@ -567,6 +589,7 @@ int main(int argc, char** argv){
                 for(int r = 0; r < num_rod_t; ++r){
                     exec_cmds();
                     if(mgr.TimeStampMsec() - mtr_t_last_update[a][r] > mtr_refresh_t_ms){
+                        lock_guard<mutex> lock(mtr_mutex);
                         if(a == lin){
                             cur_pos[a][r] = abs(nodes[lin][r].get().Motion.PosnMeasured.Value()
                                     / lin_cm_to_cnts[r]);
@@ -590,11 +613,14 @@ int main(int argc, char** argv){
     try{
 
     cout << endl;
+    cout << fixed << setprecision(2);
     
     state_t state = state_defense;
 
     for(int i = 0; i < 3; ++i){
+        double start_t = mgr.TimeStampMsec();
         move_rot(i, 90);
+        cout << mgr.TimeStampMsec() - start_t << endl;
     }
 
     for(ever){
@@ -636,7 +662,8 @@ int main(int argc, char** argv){
                 0,
             }}
         };
-        status << "Ball position: " << ball_pos[0] << ", " << ball_pos[1] << ", " << ball_pos[2] << endl;
+        status << fixed << setprecision(3) << setw(10) << showpos;
+        status << "Ball position: " << ball_pos[0] << ", " << ball_pos[1] << ", " << ball_pos[2] << "; ";
         status << "Ball velocity: " << ball_vel[0] << ", " << ball_vel[1] << ", " << ball_vel[2] << endl;
         string message = positionData.dump();
 
@@ -646,7 +673,6 @@ int main(int argc, char** argv){
                 loop->defer([client, message](){
                     client->send(message, uWS::OpCode::TEXT);
                 });
-                /* cout << "Update!" << endl; */
             }
         }
 
@@ -669,7 +695,7 @@ int main(int argc, char** argv){
                     ws_rot_updated = false;
                 }
             }
-        // Yes, else switch is just as much as a things as else if
+        // Yes, else switch is just as much as a thing as else if
         } else switch(state){
             case state_defense:
             {
@@ -681,7 +707,7 @@ int main(int argc, char** argv){
 
                 /* ball_vel = {20,-200,0}; */
                 bool shot_firing = ball_vel[1] < -100;
-                double cooldown_time = shot_firing ? 1 : 50;
+                double cooldown_time = shot_firing ? 1 : 25;
 
                 for(int i = 0; i + front < num_rod_t; ++i){
                     int rod = i + front;
@@ -715,11 +741,11 @@ int main(int argc, char** argv){
 
                     // Hysteresis to prevent rapid commands
                     /* cout << cur_pos[lin][rod] << endl; */
-                    if(abs(move_cm - cur_pos[lin][rod]) > 0.5 && !no_motors){
+                    if((shot_firing || abs(move_cm - cur_pos[lin][rod]) > 0.5) && !no_motors){
                         mtr_cmds[lin][rod] = {
                             .pos = target_cm - plr_offset_cm,
-                            .vel = shot_firing ? 150.0 : 75,
-                            .accel = shot_firing ? 1500.0 : 750,
+                            .vel = shot_firing ? 150.0 : 100,
+                            .accel = shot_firing ? 1500.0 : 1000,
                         };
                     }
                     
@@ -728,16 +754,19 @@ int main(int argc, char** argv){
 
                 break;
             }
+            case state_shot_defense:
+            {
+
+            }
             case state_unknown:
             default:
                 break;
         }
 
-        /* print_status(status.str()); */
+        /* print_status(status.str(), false); */
         /* cout << ball_pos_lcl[0] << ", " << ball_pos_lcl[1] << "; v: " << ball_vel_lcl[0] << ", " << ball_vel_lcl[1] << endl; */
         /* cout << mgr.TimeStampMsec() - start_t << endl; */
 
-        /* this_thread::sleep_for(chrono::microseconds(5'000)); */
         this_thread::sleep_for(chrono::microseconds(500));
     }
 
