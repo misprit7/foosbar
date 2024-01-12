@@ -42,6 +42,7 @@ using json = nlohmann::json;
  ******************************************************************************/
 
 #define ever ;;
+#define eps 1e-5
 
 const int init_vel_lin_cm_s = 100;
 const int init_accel_lin_cm_ss = 1000;
@@ -94,6 +95,8 @@ void move_rot(int rod, double position_deg){
     nodes[rot][rod].get().Motion.MovePosnStart(target_cnts, true);
 }
 
+function<void(int, double)> mtr_move[num_axis_t] = {move_lin, move_rot};
+
 void set_speed_lin(int rod, double vel_cm_per_s, double acc_cm_per_s2){
     nodes[lin][rod].get().Motion.VelLimit = abs(vel_cm_per_s * lin_cm_to_cnts[rod]);
     nodes[lin][rod].get().Motion.AccLimit = abs(acc_cm_per_s2 * lin_cm_to_cnts[rod]);
@@ -103,6 +106,8 @@ void set_speed_rot(int rod, double vel_deg_per_s, double acc_deg_per_s2){
     nodes[rot][rod].get().Motion.VelLimit = vel_deg_per_s * rot_deg_to_cnts[rod];
     nodes[rot][rod].get().Motion.AccLimit = acc_deg_per_s2 * rot_deg_to_cnts[rod];
 }
+
+function<void(int, double, double)> mtr_set_speed[num_axis_t] = {set_speed_lin, set_speed_rot};
 
 void close_all(){
     sFnd::IPort&port = mgr.Ports(0);
@@ -481,7 +486,7 @@ int main(int argc, char** argv){
     struct motor_cmd {
         // NAN for unchanged
         double pos;
-        double speed;
+        double vel;
         double accel;
     };
     const struct motor_cmd null_cmd = {NAN, NAN, NAN};
@@ -494,27 +499,83 @@ int main(int argc, char** argv){
 
     vector<motor_cmd> mtr_last_cmd[num_axis_t];
 
+
+    vector<double> cur_pos[num_axis_t];
+
     for(int a = 0; a < num_axis_t; ++a){
         for(int r = 0; r < num_rod_t; ++r){
             mtr_cmds[a].push_back(null_cmd);
             mtr_t_last_update[a].push_back(mgr.TimeStampMsec());
             mtr_t_last_cmd[a].push_back(mgr.TimeStampMsec());
-            struct motor_cmd mtr_last_cmd;
-            if(a == rot)
-                mtr_last_cmd = {lin_range_cm[r]/2, init_vel_lin_cm_s, init_accel_lin_cm_ss};
-            else
-                mtr_last_cmd = {0, init_vel_rot_deg_s, init_accel_rot_deg_ss};
+            if(a == rot){
+                mtr_last_cmd[a].push_back({lin_range_cm[r]/2, init_vel_lin_cm_s, init_accel_lin_cm_ss});
+                cur_pos[a].push_back(lin_range_cm[r]/2);
+            }
+            else{
+                mtr_last_cmd[a].push_back({0, init_vel_rot_deg_s, init_accel_rot_deg_ss});
+                cur_pos[a].push_back(0);
+            }
         }
     }
 
     // This is the only thread that should ever query motors directly
-    thread mtr_thread([&mtr_mutex]() {
-        for(int a = 0; a < num_axis_t; ++a){
-            for(int r = 0; r < num_rod_t; ++r){
-                // Awkward to make sure thread safe
-                vector<function<void(void)>> cmds;
-                {
-                    lock_guard<mutex> lock(mtr_mutex);
+    thread mtr_thread([&mtr_mutex, mtr_cmds, &mtr_t_last_update, &mtr_t_last_cmd, &mtr_last_cmd, &cur_pos]() {
+
+        const double mtr_refresh_t_ms = 100;
+
+        auto exec_cmds = [&](){
+            for(int a = 0; a < num_axis_t; ++a){
+                for(int r = 0; r < num_rod_t; ++r){
+                    // Awkward to make sure thread safe
+                    vector<function<void(void)>> moves;
+                    {
+                        lock_guard<mutex> lock(mtr_mutex);
+                        motor_cmd cmd = mtr_cmds[a][r];
+                        motor_cmd last_cmd = mtr_last_cmd[a][r];
+                        if(r == goalie && a == lin){
+                            cout << cmd.pos << ", " << cmd.vel << ", " << cmd.accel << endl;
+                        }
+
+                        if((!isnan(cmd.vel) && abs(cmd.vel - last_cmd.vel) > eps)
+                                || (!isnan(cmd.accel) && abs(cmd.accel - last_cmd.accel) > eps)){
+                            moves.push_back([a, r, cmd](){
+                                mtr_set_speed[a](r, cmd.vel, cmd.accel);
+                            });
+                            mtr_last_cmd[a][r].vel = cmd.vel;
+                            mtr_last_cmd[a][r].accel = cmd.accel;
+                            mtr_t_last_cmd[a][r] = mgr.TimeStampMsec();
+                        }
+
+                        if(!isnan(cmd.pos) && abs(cmd.pos - last_cmd.pos) > eps){
+                            moves.push_back([a, r, cmd](){
+                                mtr_move[a](r, cmd.pos);
+                            });
+                            mtr_last_cmd[a][r].pos = cmd.pos;
+                            mtr_t_last_cmd[a][r] = mgr.TimeStampMsec();
+                        }
+                    }
+                    // This is outside the lock's scope to avoid holding mutex too long
+                    for(auto fn : moves){
+                        fn();
+                    }
+                }
+            }
+        };
+        for(ever){
+            for(int a = 0; a < num_axis_t; ++a){
+                for(int r = 0; r < num_axis_t; ++r){
+                    exec_cmds();
+                    if(mgr.TimeStampMsec() - mtr_t_last_update[a][r] > mtr_refresh_t_ms){
+                        if(a == lin){
+                            cur_pos[a].push_back(abs(nodes[lin][r].get().Motion.PosnMeasured.Value()
+                                    / lin_cm_to_cnts[r]));
+                        } else {
+                            cur_pos[a].push_back(nodes[rot][r].get().Motion.PosnMeasured.Value()
+                                    / rot_rad_to_cnts[r]);
+                        }
+                    } else {
+                        this_thread::sleep_for(chrono::microseconds(100));
+                    }
                 }
             }
         }
@@ -542,29 +603,10 @@ int main(int argc, char** argv){
 
         stringstream status;
 
-        // Updates in a thread safe and fast way
-        vector<double> ball_pos_lcl;
-        vector<double> ball_vel_lcl;
-        {
-            lock_guard<mutex> lock(qtm_mutex);
-            ball_pos_lcl = ball_pos;
-            ball_vel_lcl = ball_vel;
-        }
+        lock_guard<mutex> qtm_lock(qtm_mutex);
+        lock_guard<mutex> mtr_lock(mtr_mutex);
 
-        vector<double> red_pos;
-        vector<double> red_rot;
-        status << "Linear position: ";
-        for(int i = 0; i < num_rod_t; ++i){
-            if(i == goalie)
-                red_pos.push_back(abs(nodes[lin][i].get().Motion.PosnMeasured.Value()
-                        / lin_cm_to_cnts[i]));
-            else 
-                red_pos.push_back(0);
-            /* red_rot.push_back(rot_nodes[i].get().Motion.PosnMeasured.Value() / rot_rad_to_cnts[i]); */
-            red_rot.push_back(0);
-            status << red_pos[i] << ", ";
-        }
-        status << endl;
+        
 
         json positionData = {
             {"type", "pos"},
@@ -572,28 +614,28 @@ int main(int argc, char** argv){
                 0.5, 0.5, 0.5, 0.5
             }},
             {"redpos", {
-                red_pos[three_bar] / lin_range_cm[three_bar],
-                red_pos[five_bar] / lin_range_cm[five_bar],
-                red_pos[two_bar] / lin_range_cm[two_bar],
-                red_pos[goalie] / lin_range_cm[goalie],
+                cur_pos[lin][three_bar] / lin_range_cm[three_bar],
+                cur_pos[lin][five_bar] / lin_range_cm[five_bar],
+                cur_pos[lin][two_bar] / lin_range_cm[two_bar],
+                cur_pos[lin][goalie] / lin_range_cm[goalie],
             }},
             {"bluerot", {
                 0,0,0,0
             }},
             {"redrot", {
-                red_rot[three_bar],
-                red_rot[five_bar],
-                red_rot[two_bar],
-                red_rot[goalie],
+                cur_pos[rot][three_bar],
+                cur_pos[rot][five_bar],
+                cur_pos[rot][two_bar],
+                cur_pos[rot][goalie],
             }},
             {"ballpos", {
-                ball_pos_lcl[0]/(play_height)+0.5,
-                ball_pos_lcl[1]/(play_width)+0.5,
+                ball_pos[0]/(play_height)+0.5,
+                ball_pos[1]/(play_width)+0.5,
                 0,
             }}
         };
-        status << "Ball position: " << ball_pos_lcl[0] << ", " << ball_pos_lcl[1] << ", " << ball_pos_lcl[2] << endl;
-        status << "Ball velocity: " << ball_vel_lcl[0] << ", " << ball_vel_lcl[1] << ", " << ball_vel_lcl[2] << endl;
+        status << "Ball position: " << ball_pos[0] << ", " << ball_pos[1] << ", " << ball_pos[2] << endl;
+        status << "Ball velocity: " << ball_vel[0] << ", " << ball_vel[1] << ", " << ball_vel[2] << endl;
         string message = positionData.dump();
 
         {
@@ -608,21 +650,21 @@ int main(int argc, char** argv){
 
         if(controller){
             for(int i = 0; i < num_rod_t; ++i){
-                double ws_pos_lcl, ws_pos_updated_lcl, ws_rot_lcl, ws_rot_updated_lcl;
+                double ws_pos, ws_pos_updated, ws_rot, ws_rot_updated;
                 {
                     lock_guard<mutex> lock(ws_mutex);
-                    ws_pos_lcl = tgt_pos[i];
-                    ws_pos_updated_lcl = tgt_pos_updated[i];
-                    ws_rot_lcl = tgt_rot[i];
-                    ws_rot_updated_lcl = tgt_rot_updated[i];
+                    ws_pos = tgt_pos[i];
+                    ws_pos_updated = tgt_pos_updated[i];
+                    ws_rot = tgt_rot[i];
+                    ws_rot_updated = tgt_rot_updated[i];
                 }
-                if(ws_pos_updated_lcl){
-                    move_lin(i, lin_range_cm[i] * ws_pos_lcl);
-                    ws_pos_updated_lcl = false;
+                if(ws_pos_updated){
+                    move_lin(i, lin_range_cm[i] * ws_pos);
+                    ws_pos_updated = false;
                 }
-                if(ws_rot_updated_lcl){
-                    move_rot(i, ws_rot_lcl / deg_to_rad);
-                    ws_rot_updated_lcl = false;
+                if(ws_rot_updated){
+                    move_rot(i, ws_rot / deg_to_rad);
+                    ws_rot_updated = false;
                 }
             }
         // Yes, else switch is just as much as a things as else if
@@ -630,30 +672,34 @@ int main(int argc, char** argv){
             case state_defense:
             {
                 int front;
-                /* if(ball_pos_lcl[1] > 2*plr_dist) front = three_bar; */
-                /* else if(ball_pos_lcl[1] > 0) front = five_bar; */
-                /* else if(ball_pos_lcl[1] > -2*plr_dist) front = two_bar; */
+                /* if(ball_pos[1] > 2*plr_dist) front = three_bar; */
+                /* else if(ball_pos[1] > 0) front = five_bar; */
+                /* else if(ball_pos[1] > -2*plr_dist) front = two_bar; */
                 front = goalie;
 
-                /* ball_vel_lcl = {20,-200,0}; */
-                bool shot_firing = ball_vel_lcl[1] < -100;
+                /* ball_vel = {20,-200,0}; */
+                bool shot_firing = ball_vel[1] < -100;
+                double cooldown_time = shot_firing ? 1 : 500;
 
                 status << front << ": ";
                 for(int i = 0; i + front < num_rod_t; ++i){
                     int rod = i + front;
 
-                    double target_cm = ball_pos_lcl[0] + play_height / 2;
+                    // Don't send commands too often
+                    if(mgr.TimeStampMsec() - mtr_t_last_cmd[lin][rod] < cooldown_time) continue;
+
+                    double target_cm = ball_pos[0] + play_height / 2;
                     if(shot_firing && rod == goalie){
                         double rod_y = -rod_gap * 3.5;
-                        double dt = (rod_y - ball_pos_lcl[1]) / ball_vel_lcl[1];
-                        target_cm += ball_vel_lcl[0] * dt;
+                        double dt = (rod_y - ball_pos[1]) / ball_vel[1];
+                        target_cm += ball_vel[0] * dt;
                     }
-                    status << "Target: " << target_cm << ", Ball: " << ball_pos_lcl[0]+play_height/2 << endl;
+                    status << "Target: " << target_cm << ", Ball: " << ball_pos[0]+play_height/2 << endl;
                     // Offset so no double blocking
                     if(i == 1){
-                        target_cm += (ball_pos_lcl[0] > 0 ? -1 : 1) * plr_width;
+                        target_cm += (ball_pos[0] > 0 ? -1 : 1) * plr_width;
                     } else if (i == 2){
-                        target_cm += (ball_pos_lcl[0] > 0 ? 1 : -1) * plr_width;
+                        target_cm += (ball_pos[0] > 0 ? 1 : -1) * plr_width;
                     }
 
                     int plr = floor(num_plrs[rod] * target_cm / play_height);
@@ -668,15 +714,12 @@ int main(int argc, char** argv){
                     double move_cm = target_cm - plr_offset_cm;
 
                     // Hysteresis to prevent rapid commands
-                    if(abs(move_cm - red_pos[rod]) > 0.5 && !no_motors){
-                        if(!shot_firing){
-                            /* set_speed_lin(rod, 25, 250); */
-                            set_speed_lin(rod, 75, 750);
-                            /* set_speed_lin(rod, 0, 0); */
-                        } else {
-                            set_speed_lin(rod, 150, 1500);
-                        }
-                        move_lin(rod, target_cm - plr_offset_cm);
+                    if(abs(move_cm - cur_pos[lin][rod]) > 0.5 && !no_motors){
+                        mtr_cmds[lin][rod] = {
+                            .pos = target_cm - plr_offset_cm,
+                            .vel = shot_firing ? 150.0 : 75,
+                            .accel = shot_firing ? 1500.0 : 750,
+                        };
                     }
                     
                 }
@@ -692,7 +735,7 @@ int main(int argc, char** argv){
 
         /* print_status(status.str()); */
         /* cout << ball_pos_lcl[0] << ", " << ball_pos_lcl[1] << "; v: " << ball_vel_lcl[0] << ", " << ball_vel_lcl[1] << endl; */
-        cout << mgr.TimeStampMsec() - start_t << endl;
+        /* cout << mgr.TimeStampMsec() - start_t << endl; */
 
         /* this_thread::sleep_for(chrono::microseconds(5'000)); */
         this_thread::sleep_for(chrono::microseconds(500));
