@@ -478,6 +478,7 @@ int main(int argc, char** argv){
      * Clearpath thread
      **************************************************************************/
 
+    // Do this on the main thread just to make sure that everything is initialized
     int init_err = motors_init();
     if(init_err < 0) return init_err;
 
@@ -491,9 +492,9 @@ int main(int argc, char** argv){
     };
     const struct motor_cmd null_cmd = {NAN, NAN, NAN};
 
-    /* priority_queue<pair<int, function<void(void)>>> motor_queue; */
-    /* queue<function<void(void)>> motor_queue; */
+    // Could be fancier with some kind of a priority queue, but I think this is fine
     vector<motor_cmd> mtr_cmds[num_axis_t];
+
     vector<double> mtr_t_last_update[num_axis_t];
     vector<double> mtr_t_last_cmd[num_axis_t];
 
@@ -519,7 +520,7 @@ int main(int argc, char** argv){
     }
 
     // This is the only thread that should ever query motors directly
-    thread mtr_thread([&mtr_mutex, mtr_cmds, &mtr_t_last_update, &mtr_t_last_cmd, &mtr_last_cmd, &cur_pos]() {
+    thread mtr_thread([&mtr_mutex, &mtr_cmds, &mtr_t_last_update, &mtr_t_last_cmd, &mtr_last_cmd, &cur_pos]() {
 
         const double mtr_refresh_t_ms = 100;
 
@@ -532,9 +533,9 @@ int main(int argc, char** argv){
                         lock_guard<mutex> lock(mtr_mutex);
                         motor_cmd cmd = mtr_cmds[a][r];
                         motor_cmd last_cmd = mtr_last_cmd[a][r];
-                        if(r == goalie && a == lin){
-                            cout << cmd.pos << ", " << cmd.vel << ", " << cmd.accel << endl;
-                        }
+                        /* if(r == goalie && a == lin){ */
+                        /*     cout << cmd.pos << ", " << cmd.vel << ", " << cmd.accel << endl; */
+                        /* } */
 
                         if((!isnan(cmd.vel) && abs(cmd.vel - last_cmd.vel) > eps)
                                 || (!isnan(cmd.accel) && abs(cmd.accel - last_cmd.accel) > eps)){
@@ -563,16 +564,17 @@ int main(int argc, char** argv){
         };
         for(ever){
             for(int a = 0; a < num_axis_t; ++a){
-                for(int r = 0; r < num_axis_t; ++r){
+                for(int r = 0; r < num_rod_t; ++r){
                     exec_cmds();
                     if(mgr.TimeStampMsec() - mtr_t_last_update[a][r] > mtr_refresh_t_ms){
                         if(a == lin){
-                            cur_pos[a].push_back(abs(nodes[lin][r].get().Motion.PosnMeasured.Value()
-                                    / lin_cm_to_cnts[r]));
+                            cur_pos[a][r] = abs(nodes[lin][r].get().Motion.PosnMeasured.Value()
+                                    / lin_cm_to_cnts[r]);
                         } else {
-                            cur_pos[a].push_back(nodes[rot][r].get().Motion.PosnMeasured.Value()
-                                    / rot_rad_to_cnts[r]);
+                            cur_pos[a][r] = nodes[rot][r].get().Motion.PosnMeasured.Value()
+                                    / rot_rad_to_cnts[r];
                         }
+                        mtr_t_last_update[a][r] = mgr.TimeStampMsec();
                     } else {
                         this_thread::sleep_for(chrono::microseconds(100));
                     }
@@ -679,9 +681,8 @@ int main(int argc, char** argv){
 
                 /* ball_vel = {20,-200,0}; */
                 bool shot_firing = ball_vel[1] < -100;
-                double cooldown_time = shot_firing ? 1 : 500;
+                double cooldown_time = shot_firing ? 1 : 50;
 
-                status << front << ": ";
                 for(int i = 0; i + front < num_rod_t; ++i){
                     int rod = i + front;
 
@@ -694,7 +695,7 @@ int main(int argc, char** argv){
                         double dt = (rod_y - ball_pos[1]) / ball_vel[1];
                         target_cm += ball_vel[0] * dt;
                     }
-                    status << "Target: " << target_cm << ", Ball: " << ball_pos[0]+play_height/2 << endl;
+
                     // Offset so no double blocking
                     if(i == 1){
                         target_cm += (ball_pos[0] > 0 ? -1 : 1) * plr_width;
@@ -710,10 +711,10 @@ int main(int argc, char** argv){
                     plr = clamp(plr, 0, num_plrs[rod]);
 
                     double plr_offset_cm = bumper_width + plr_width/2 + plr*plr_gap[rod];
-                    status << plr << ", " << plr_offset_cm << ", ";
                     double move_cm = target_cm - plr_offset_cm;
 
                     // Hysteresis to prevent rapid commands
+                    /* cout << cur_pos[lin][rod] << endl; */
                     if(abs(move_cm - cur_pos[lin][rod]) > 0.5 && !no_motors){
                         mtr_cmds[lin][rod] = {
                             .pos = target_cm - plr_offset_cm,
@@ -723,7 +724,6 @@ int main(int argc, char** argv){
                     }
                     
                 }
-                status << endl;
 
 
                 break;
