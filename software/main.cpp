@@ -22,8 +22,6 @@
 #include <deque>
 #include <queue>
 
-#include "physical_params.hpp"
-
 #include <clearpath/pubMotion.h>
 #include <clearpath/pubSysCls.h>
 
@@ -33,6 +31,9 @@
 #include <uWebSockets/App.h>
 #include <uWebSockets/PerMessageDeflate.h>
 #include <nlohmann/json.hpp>
+
+#include "physical_params.hpp"
+#include "algo.hpp"
 
 using namespace std;
 using json = nlohmann::json;
@@ -51,18 +52,6 @@ const int init_vel_rot_deg_s = 5000;
 const int init_accel_rot_deg_ss = 50000;
 
 const int homing_timeout_ms = 10000;
-
-typedef enum state_t {
-    state_defense,
-    state_shot_defense,
-    state_shot_offense,
-    state_goalie_possess,
-    state_two_bar_possess,
-    state_five_bar_possess,
-    state_three_bar_possess,
-    state_unknown,
-    num_state_t
-} state_t;
 
 /******************************************************************************
  * Global Variables
@@ -434,7 +423,7 @@ int main(int argc, char** argv){
         
         deque<pair<double, vector<double>>> pos_buffer;
         const int buf_cap = vision_fps;
-        const double gamma = 0.5; // Higher = more noise, less latency
+        const double gamma = 0.3; // Higher = more noise, less latency
         for(ever){
             CRTPacket::EPacketType packetType;
             if(rtProtocol.Receive(packetType, true, 0) == CNetwork::ResponseType::success){
@@ -509,12 +498,6 @@ int main(int argc, char** argv){
 
     mutex mtr_mutex;
 
-    struct motor_cmd {
-        // NAN for unchanged
-        double pos;
-        double vel;
-        double accel;
-    };
     const struct motor_cmd null_cmd = {NAN, NAN, NAN};
 
     // Could be fancier with some kind of a priority queue, but I think this is fine
@@ -665,6 +648,7 @@ int main(int argc, char** argv){
         status << fixed << setprecision(3) << setw(10) << showpos;
         status << "Ball position: " << ball_pos[0] << ", " << ball_pos[1] << ", " << ball_pos[2] << "; ";
         status << "Ball velocity: " << ball_vel[0] << ", " << ball_vel[1] << ", " << ball_vel[2] << endl;
+        status << "State: " << state << endl;
         string message = positionData.dump();
 
         {
@@ -700,14 +684,13 @@ int main(int argc, char** argv){
             case state_defense:
             {
                 int front;
-                /* if(ball_pos[1] > 2*plr_dist) front = three_bar; */
-                /* else if(ball_pos[1] > 0) front = five_bar; */
-                /* else if(ball_pos[1] > -2*plr_dist) front = two_bar; */
+                if(ball_pos[1] > 2*rod_gap) front = three_bar;
+                else if(ball_pos[1] > 0) front = five_bar;
+                else if(ball_pos[1] > -2*rod_gap) front = two_bar;
                 front = goalie;
 
                 /* ball_vel = {20,-200,0}; */
-                bool shot_firing = ball_vel[1] < -100;
-                double cooldown_time = shot_firing ? 1 : 25;
+                double cooldown_time = 25;
 
                 for(int i = 0; i + front < num_rod_t; ++i){
                     int rod = i + front;
@@ -716,11 +699,6 @@ int main(int argc, char** argv){
                     if(mgr.TimeStampMsec() - mtr_t_last_cmd[lin][rod] < cooldown_time) continue;
 
                     double target_cm = ball_pos[0] + play_height / 2;
-                    if(shot_firing && rod == goalie){
-                        double rod_y = -rod_gap * 3.5;
-                        double dt = (rod_y - ball_pos[1]) / ball_vel[1];
-                        target_cm += ball_vel[0] * dt;
-                    }
 
                     // Offset so no double blocking
                     if(i == 1){
@@ -729,41 +707,66 @@ int main(int argc, char** argv){
                         target_cm += (ball_pos[0] > 0 ? 1 : -1) * plr_width;
                     }
 
-                    int plr = floor(num_plrs[rod] * target_cm / play_height);
+                    if(abs(ball_vel[0]) > 50){
+                        int sgn = ball_vel[0] > 0 ? 1 : -1;
+                        target_cm += sgn*4;
+                    }
 
-                    // Override since switching is awkward
-                    if(rod == two_bar) plr = 0;
+                    int plr = closest_plr(rod, target_cm, cur_pos[lin][rod]);
                     
-                    plr = clamp(plr, 0, num_plrs[rod]);
 
                     double plr_offset_cm = bumper_width + plr_width/2 + plr*plr_gap[rod];
-                    double move_cm = target_cm - plr_offset_cm;
+                    double move_cm = abs(target_cm - plr_offset_cm - cur_pos[lin][rod]);
 
                     // Hysteresis to prevent rapid commands
                     /* cout << cur_pos[lin][rod] << endl; */
-                    if((shot_firing || abs(move_cm - cur_pos[lin][rod]) > 0.5) && !no_motors){
+                    if(move_cm > 0.5 && !no_motors){
                         mtr_cmds[lin][rod] = {
                             .pos = target_cm - plr_offset_cm,
-                            .vel = shot_firing ? 150.0 : 100,
-                            .accel = shot_firing ? 1500.0 : 1000,
+                            .vel = 100,
+                            .accel = 1500 * clamp(move_cm / 2, 0.0, 1.0),
                         };
                     }
                     
                 }
 
+                if(ball_vel[1] < -100) state = state_shot_defense;
 
                 break;
             }
             case state_shot_defense:
             {
+                for(int r = 0; r < num_rod_t; ++r){
+                    // If ball is already past this rod, do nothing
+                    if(ball_pos[1] < rod_pos[r]) continue;
+                    if(r != goalie) continue;
 
+                    // Predict trajectory
+                    double target_cm = ball_pos[0] + play_height / 2;
+                    // ball_vel[1] is negative so this is positive
+                    double dt = (rod_pos[r] - ball_pos[1]) / ball_vel[1];
+                    target_cm += ball_vel[0] * dt;
+                    cout << "dt: " << dt << ", ball_vel[0]: " << ball_vel[0] << ", ball_vel[1]: " << ball_vel[1] << ", target_cm: " << target_cm << endl;
+
+                    /* int plr = closest_plr(r, target_cm, cur_pos[lin][r]); */
+                    int plr = 0;
+                    double plr_offset_cm = bumper_width + plr_width/2 + plr*plr_gap[r];
+
+                    mtr_cmds[lin][r] = {
+                        .pos = target_cm - plr_offset_cm,
+                        .vel = 150.0,
+                        .accel = 1500.0,
+                    };
+                }
+                if(ball_vel[1] > -50) state = state_defense;
+                break;
             }
             case state_unknown:
             default:
                 break;
         }
 
-        /* print_status(status.str(), false); */
+        /* print_status(status.str(), true); */
         /* cout << ball_pos_lcl[0] << ", " << ball_pos_lcl[1] << "; v: " << ball_vel_lcl[0] << ", " << ball_vel_lcl[1] << endl; */
         /* cout << mgr.TimeStampMsec() - start_t << endl; */
 

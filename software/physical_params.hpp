@@ -86,15 +86,20 @@ const double bumper_width = 2.496;
 
 const double rod_gap = 101.7/7;
 
+// From the perspective of robot, obviously minus for human
+const double rod_pos[num_rod_t] = {
+    1.5*rod_gap, -0.5*rod_gap, -2.5*rod_gap, -3.5*rod_gap
+};
+
 // Slightly more accurate to measure multiple then divide
-const double plr_gap[] = {
+const double plr_gap[num_rod_t] = {
     (45.1 - 2*bumper_width - plr_width) / 2,
     (52.6 - 2*bumper_width - plr_width) / 4,
     (32.8 - 2*bumper_width - plr_width),
     (45.1 - 2*bumper_width - plr_width) / 2,
 };
 
-const int num_plrs[] = {
+const int num_plrs[num_rod_t] = {
     3,
     5,
     2,

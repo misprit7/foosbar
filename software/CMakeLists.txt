@@ -18,7 +18,7 @@ find_package(ZLIB REQUIRED)
 find_package(OpenSSL REQUIRED)
 # include_directories( /usr/local/include/uWebSockets )
 
-add_executable( foosbar main.cpp )
+add_executable( foosbar main.cpp algo.cpp )
 
 target_link_libraries( foosbar ${OpenCV_LIBS} )
 target_link_libraries( foosbar /usr/local/lib/libsFoundation20.so )
