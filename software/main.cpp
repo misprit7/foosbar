@@ -687,9 +687,14 @@ int main(int argc, char** argv){
             case state_defense:
             {
                 int front;
-                if(ball_pos[1] > 2*rod_gap) front = three_bar;
-                else if(ball_pos[1] > 0) front = five_bar;
-                else if(ball_pos[1] > -2*rod_gap) front = two_bar;
+                pair<side_t, rod_t> closest = closest_rod(ball_pos[1]);
+                if(closest.first == bot){
+                    state = state_uncontrolled;
+                    break;
+                }
+                if(closest.second == three_bar) front = two_bar;
+                else if(closest.second == five_bar) front = five_bar;
+                else front = three_bar;
 
                 /* ball_vel = {20,-200,0}; */
                 double cooldown_time = 25;
@@ -801,6 +806,7 @@ int main(int argc, char** argv){
                 if(ball_vel[1] > -50) state = state_defense;
                 break;
             }
+            case state_uncontrolled:
             case state_unknown:
             default:
                 break;

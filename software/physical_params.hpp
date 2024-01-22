@@ -30,6 +30,11 @@ typedef enum axis_t {
     num_axis_t
 } axis_t;
 
+typedef enum side_t {
+    bot,
+    human,
+    num_side_t
+} side_t;
 
 /******************************************************************************
  * Table Dimensions

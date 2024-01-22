@@ -15,10 +15,9 @@ typedef enum state_t {
     state_defense,
     state_shot_defense,
     state_shot_offense,
-    state_goalie_possess,
-    state_two_bar_possess,
-    state_five_bar_possess,
-    state_three_bar_possess,
+    state_uncontrolled,
+    state_controlled,
+    state_shooting,
     state_unknown,
     num_state_t
 } state_t;
@@ -46,5 +45,5 @@ state_t algo_action(
 
 int closest_plr(int rod, double target_cm, double cur_pos);
 
-
+pair<side_t, rod_t> closest_rod(double ball_cm);
 
