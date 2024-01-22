@@ -523,6 +523,7 @@ int main(int argc, char** argv){
             else{
                 mtr_last_cmd[a].push_back({0, init_vel_rot_deg_s, init_accel_rot_deg_ss});
                 cur_pos[a].push_back(0);
+                /* move_lin(r, 0); */
             }
         }
     }
@@ -547,8 +548,10 @@ int main(int argc, char** argv){
                             moves.push_back([a, r, cmd](){
                                 mtr_set_speed[a](r, cmd.vel, cmd.accel);
                             });
-                            mtr_last_cmd[a][r].vel = cmd.vel;
-                            mtr_last_cmd[a][r].accel = cmd.accel;
+                            if(!isnan(cmd.vel))
+                                mtr_last_cmd[a][r].vel = cmd.vel;
+                            if(!isnan(cmd.accel))
+                                mtr_last_cmd[a][r].accel = cmd.accel;
                             mtr_t_last_cmd[a][r] = mgr.TimeStampMsec();
                         }
 
@@ -600,11 +603,11 @@ int main(int argc, char** argv){
     
     state_t state = state_defense;
 
-    for(int i = 0; i < 2; ++i){
-        double start_t = mgr.TimeStampMsec();
-        move_rot(i, 90);
-        cout << mgr.TimeStampMsec() - start_t << endl;
-    }
+    /* for(int i = 0; i < 2; ++i){ */
+    /*     double start_t = mgr.TimeStampMsec(); */
+    /*     move_rot(i, 90); */
+    /*     cout << mgr.TimeStampMsec() - start_t << endl; */
+    /* } */
 
     for(ever){
 
@@ -687,7 +690,6 @@ int main(int argc, char** argv){
                 if(ball_pos[1] > 2*rod_gap) front = three_bar;
                 else if(ball_pos[1] > 0) front = five_bar;
                 else if(ball_pos[1] > -2*rod_gap) front = two_bar;
-                front = two_bar;
 
                 /* ball_vel = {20,-200,0}; */
                 double cooldown_time = 25;
@@ -726,7 +728,8 @@ int main(int argc, char** argv){
                     /* } */
 
                     // Don't block the wall behind
-                    target_cm = clamp(target_cm, play_height/3, play_height*2/3);
+                    if(front == two_bar)
+                        target_cm = clamp(target_cm, play_height/3, play_height*2/3);
 
                     int plr = closest_plr(rod, target_cm, cur_pos[lin][rod]);
                     
@@ -734,25 +737,29 @@ int main(int argc, char** argv){
 
                     double plr_offset_cm = bumper_width + plr_width/2 + plr*plr_gap[rod];
                     // How much of a change from previous command this is
-                    double move_cm = isnan(mtr_cmds[lin][rod].pos) ? 10 : abs(target_cm - plr_offset_cm - mtr_cmds[lin][rod].pos);
+                    double move_cm = abs(target_cm - plr_offset_cm - mtr_last_cmd[lin][rod].pos);
 
                     // Hysteresis to prevent rapid commands
                     /* cout << cur_pos[lin][rod] << endl; */
                     if(move_cm > 0.5 && !no_motors){
+                        double accel = 1000 * clamp(move_cm / 2, 0.0, 1.0);
+                        if(front < two_bar && rod >= two_bar){
+                            accel = 50;
+                        }
                         mtr_cmds[lin][rod] = {
                             .pos = target_cm - plr_offset_cm,
                             .vel = 150,
-                            .accel = 1000 * clamp(move_cm / 2, 0.0, 1.0),
+                            .accel = accel,
                         };
                     }
 
                     double target_deg = -25;
                     if(front == two_bar && rod == two_bar){
-                        if(target_cm >= play_height * 11/18 || target_cm <= play_height * 7/18)
+                        if(target_cm >= play_height * 11.5/18 || target_cm <= play_height * 6.5/18)
                             target_deg = 25;
                     }
 
-                    if(isnan(mtr_cmds[rot][rod].pos) || (abs(mtr_cmds[rot][rod].pos - target_deg) >= eps)){
+                    if(abs(mtr_last_cmd[rot][rod].pos - target_deg) >= eps){
                         mtr_cmds[rot][rod] = {
                             .pos = target_deg,
                             .vel = NAN,
@@ -761,6 +768,7 @@ int main(int argc, char** argv){
                     }
                     
                 }
+                status << endl;
 
                 if(ball_vel[1] < -100) state = state_shot_defense;
 
@@ -771,7 +779,6 @@ int main(int argc, char** argv){
                 for(int r = 0; r < num_rod_t; ++r){
                     // If ball is already past this rod, do nothing
                     if(ball_pos[1] < rod_pos[r]) continue;
-                    if(r != goalie || r != two_bar) continue;
 
                     // Predict trajectory
                     double target_cm = ball_pos[0] + play_height / 2;

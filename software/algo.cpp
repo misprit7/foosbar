@@ -40,7 +40,7 @@ state_t algo_action(params){
 }
 
 int closest_plr(int rod, double target_cm, double cur_pos){
-    int plr1 = clamp((int)floor(num_plrs[rod] * target_cm / play_height), 0, num_plrs[rod]);
+    int plr1 = clamp((int)floor(num_plrs[rod] * target_cm / play_height), 0, num_plrs[rod]-1);
     double plr1_pos = bumper_width + plr_width/2 + plr1*plr_gap[rod] + cur_pos;
 
     int plr2 = plr1_pos > target_cm ? plr1-1 : plr1+1;
