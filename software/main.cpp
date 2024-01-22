@@ -600,7 +600,7 @@ int main(int argc, char** argv){
     
     state_t state = state_defense;
 
-    for(int i = 0; i < 3; ++i){
+    for(int i = 0; i < 2; ++i){
         double start_t = mgr.TimeStampMsec();
         move_rot(i, 90);
         cout << mgr.TimeStampMsec() - start_t << endl;
@@ -687,7 +687,7 @@ int main(int argc, char** argv){
                 if(ball_pos[1] > 2*rod_gap) front = three_bar;
                 else if(ball_pos[1] > 0) front = five_bar;
                 else if(ball_pos[1] > -2*rod_gap) front = two_bar;
-                front = goalie;
+                front = two_bar;
 
                 /* ball_vel = {20,-200,0}; */
                 double cooldown_time = 25;
@@ -700,31 +700,63 @@ int main(int argc, char** argv){
 
                     double target_cm = ball_pos[0] + play_height / 2;
 
-                    // Offset so no double blocking
-                    if(i == 1){
-                        target_cm += (ball_pos[0] > 0 ? -1 : 1) * plr_width;
-                    } else if (i == 2){
-                        target_cm += (ball_pos[0] > 0 ? 1 : -1) * plr_width;
+                    if(i > 0){
+                        // Offset so no double blocking
+                        double offset_gap_cm = 4.5;
+                        // 1 = bot side, -1 = human
+                        double side = ball_pos[0] > 0 ? 1 : -1;
+                        // Override if currently moving and already at one side
+                        if(ball_vel[1] > 50 && mtr_cmds[lin][rod].pos >= mtr_cmds[lin][rod-1].pos)
+                            side = 1;
+                        if(ball_vel[1] < -50 && mtr_cmds[lin][rod].pos <= mtr_cmds[lin][rod-1].pos)
+                            side = -1;
+                        /* if(front == two_bar && abs(ball_vel[0]) >= 50){ */
+                        /*     offset_gap *= 1.5; */
+                        /* } */
+                        if(i == 1){
+                            target_cm += -side * offset_gap_cm;
+                        } else if (i == 2){
+                            target_cm += side * offset_gap_cm;
+                        }
                     }
 
-                    if(abs(ball_vel[0]) > 50){
-                        int sgn = ball_vel[0] > 0 ? 1 : -1;
-                        target_cm += sgn*4;
-                    }
+                    /* if(abs(ball_vel[0]) > 50){ */
+                    /*     int sgn = ball_vel[0] > 0 ? 1 : -1; */
+                    /*     target_cm += sgn*4; */
+                    /* } */
+
+                    // Don't block the wall behind
+                    target_cm = clamp(target_cm, play_height/3, play_height*2/3);
 
                     int plr = closest_plr(rod, target_cm, cur_pos[lin][rod]);
                     
+                    /* if(rod == goalie && front == two_bar) plr = 1; */
 
                     double plr_offset_cm = bumper_width + plr_width/2 + plr*plr_gap[rod];
-                    double move_cm = abs(target_cm - plr_offset_cm - cur_pos[lin][rod]);
+                    // How much of a change from previous command this is
+                    double move_cm = isnan(mtr_cmds[lin][rod].pos) ? 10 : abs(target_cm - plr_offset_cm - mtr_cmds[lin][rod].pos);
 
                     // Hysteresis to prevent rapid commands
                     /* cout << cur_pos[lin][rod] << endl; */
                     if(move_cm > 0.5 && !no_motors){
                         mtr_cmds[lin][rod] = {
                             .pos = target_cm - plr_offset_cm,
-                            .vel = 100,
-                            .accel = 1500 * clamp(move_cm / 2, 0.0, 1.0),
+                            .vel = 150,
+                            .accel = 1000 * clamp(move_cm / 2, 0.0, 1.0),
+                        };
+                    }
+
+                    double target_deg = -25;
+                    if(front == two_bar && rod == two_bar){
+                        if(target_cm >= play_height * 11/18 || target_cm <= play_height * 7/18)
+                            target_deg = 25;
+                    }
+
+                    if(isnan(mtr_cmds[rot][rod].pos) || (abs(mtr_cmds[rot][rod].pos - target_deg) >= eps)){
+                        mtr_cmds[rot][rod] = {
+                            .pos = target_deg,
+                            .vel = NAN,
+                            .accel = NAN,
                         };
                     }
                     
@@ -739,17 +771,18 @@ int main(int argc, char** argv){
                 for(int r = 0; r < num_rod_t; ++r){
                     // If ball is already past this rod, do nothing
                     if(ball_pos[1] < rod_pos[r]) continue;
-                    if(r != goalie) continue;
+                    if(r != goalie || r != two_bar) continue;
 
                     // Predict trajectory
                     double target_cm = ball_pos[0] + play_height / 2;
                     // ball_vel[1] is negative so this is positive
                     double dt = (rod_pos[r] - ball_pos[1]) / ball_vel[1];
                     target_cm += ball_vel[0] * dt;
-                    cout << "dt: " << dt << ", ball_vel[0]: " << ball_vel[0] << ", ball_vel[1]: " << ball_vel[1] << ", target_cm: " << target_cm << endl;
+                    /* cout << "dt: " << dt << ", ball_vel[0]: " << ball_vel[0] << ", ball_vel[1]: " << ball_vel[1] << ", target_cm: " << target_cm << endl; */
 
-                    /* int plr = closest_plr(r, target_cm, cur_pos[lin][r]); */
-                    int plr = 0;
+                    int plr = closest_plr(r, target_cm, cur_pos[lin][r]);
+                    if(r == goalie) plr = 1;
+
                     double plr_offset_cm = bumper_width + plr_width/2 + plr*plr_gap[r];
 
                     mtr_cmds[lin][r] = {
@@ -766,7 +799,7 @@ int main(int argc, char** argv){
                 break;
         }
 
-        /* print_status(status.str(), true); */
+        print_status(status.str(), true);
         /* cout << ball_pos_lcl[0] << ", " << ball_pos_lcl[1] << "; v: " << ball_vel_lcl[0] << ", " << ball_vel_lcl[1] << endl; */
         /* cout << mgr.TimeStampMsec() - start_t << endl; */
 
