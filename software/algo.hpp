@@ -29,7 +29,8 @@ typedef enum control_task_t {
     control_task_lower,
     control_task_push,
     control_task_shoot,
-    control_task_adjust,
+    control_task_adjust_move,
+    control_task_adjust_down,
 } control_task_t;
 
 struct motor_cmd {

@@ -604,6 +604,7 @@ int main(int argc, char** argv){
     cout << fixed << setprecision(2);
     
     state_t state = state_controlled;
+    /* state_t state = state_defense; */
     control_task_t control_task = control_task_init;
 
     /* for(int i = 0; i < 2; ++i){ */
@@ -851,10 +852,10 @@ int main(int argc, char** argv){
 
 
             pair<side_t, rod_t> closest = closest_rod(ball_pos[1]);
-            if(closest.first != bot){
-                state = state_defense;
-                break;
-            }
+            /* if(closest.first != bot){ */
+            /*     state = state_defense; */
+            /*     break; */
+            /* } */
             rod_t rod = closest.second;
             status << "cur_pos[rot][rod]: " << cur_pos[rot][rod] << endl;
 
@@ -868,6 +869,7 @@ int main(int argc, char** argv){
             int plr = 0;
             int dir = 1;
             bool ball_in_pos = abs(ball_pos[0] - goal_cm) <= 1;
+            bool ball_in_rot = abs(ball_pos[1] - rod_pos[rod]) <= 1;
             // If already close we want to prepare the shot
             if(ball_in_pos){
                 plr = 1, dir = ball_pos[0] >= play_height / 2 ? -1 : 1;
@@ -899,18 +901,25 @@ int main(int argc, char** argv){
                 };
                 control_task = control_task_raise;
                 cout << "raise" << endl;
-                cout << plr << ", " << dir << ", " << ball_pos[0] << ", " << setup_offset << endl;
+                cout << plr << ", " << dir << ", " << setup_offset << ", " << ball_in_pos << ", " << ball_in_rot  << ", " << rod_pos[rod]  << ", " << ball_pos[0] << ", " << ball_pos[1] << ", " << ball_pos[2] << endl;
                 break;
             case control_task_raise:
                 if(abs(cur_pos[rot][rod] - 90) < 1.0){
-                    double target_cm = ball_pos[0] - dir*(ball_rad + foot_width/2 + 0.1);
+                    double offset = ball_in_pos ? 0.2 : 0.5;
+                    double target_cm = ball_pos[0] - dir*(ball_rad + foot_width/2 + offset);
+                    // If in position but not rotated, go directly to the ball to adjust it
+                    if(ball_in_pos && !ball_in_rot){
+                        target_cm = ball_pos[0];
+                        control_task = control_task_adjust_move;
+                    } else {
+                        control_task = control_task_move_lateral;
+                    }
 
                     mtr_cmds[lin][rod] = {
-                        .pos = target_cm - plr_offset_cm,
-                        .vel = 20,
-                        .accel = 200,
+                        .pos = clamp(target_cm - plr_offset_cm, 0.0, lin_range_cm[rod]),
+                        .vel = ball_in_pos ? 20.0 : 50,
+                        .accel = ball_in_pos ? 200.0 : 500,
                     };
-                    control_task = control_task_move_lateral;
                     cout << "move_lateral" << endl;
                 }
                 break;
@@ -918,24 +927,74 @@ int main(int argc, char** argv){
                 if(abs(cur_pos[lin][rod] - mtr_last_cmd[lin][rod].pos) < 0.1){
                     mtr_cmds[rot][rod] = {
                         .pos = 0,
-                        .vel = 30,
-                        .accel = 200,
+                        .vel = 50,
+                        .accel = 500,
                     };
                     control_task = control_task_lower;
                     cout << "lower" << endl;
                 }
                 break;
+            case control_task_adjust_move:
+                if(abs(cur_pos[lin][rod] - mtr_last_cmd[lin][rod].pos) < 0.1){
+                    double pos = ball_pos[1] < rod_pos[rod] ? 55 : 360 - 55;
+                    mtr_cmds[rot][rod] = {
+                        .pos = pos,
+                        .vel = 100,
+                        .accel = 500,
+                    };
+                    control_task = control_task_adjust_down;
+                    cout << "adjust down" << endl;
+                }
+
+                break;
+            case control_task_adjust_down:
+                if(abs(cur_pos[rot][rod] - mtr_last_cmd[rot][rod].pos) < 1.0){
+                    double last_deg = mtr_last_cmd[rot][rod].pos;
+                    // Check for first, fast section of move and finish slowly
+                    if(last_deg >= 45 && last_deg <= 360 - 45){
+                        double pos = ball_pos[1] < rod_pos[rod] ? 20 : 360 - 30;
+                        mtr_cmds[rot][rod] = {
+                            .pos = pos,
+                            .vel = 10,
+                            .accel = 200,
+                        };
+                        break;
+                    }
+                    // Whether to move clockwise or not
+                    // Only move clockwise if both in front of the ball and we're on the inconvenient side
+                    bool cw = abs(cur_pos[lin][rod] - plr_offset_cm - ball_pos[0]) < ball_rad + plr_width/2
+                        && cur_pos[rot][rod] * deg_to_rad * plr_height <= rod_pos[rod] - ball_pos[1];
+                    mtr_cmds[rot][rod] = {
+                        .pos = cw ? -360.0 + 90 : 90,
+                        .vel = 500,
+                        .accel = 5000,
+                    };
+                    cout << "raise" << endl;
+                    control_task = control_task_raise;
+                }
+                break;
             case control_task_lower:
                 if(abs(cur_pos[rot][rod]) < 1.0){
                     if(ball_in_pos){
-                        cout << "shoot" << endl;
-                        control_task = control_task_shoot;
+                        double target_cm = ball_pos[0] - dir*(ball_rad + foot_width/2);
+                        if(abs(cur_pos[lin][0] + plr_offset_cm - target_cm) > 1){
+                            mtr_cmds[rot][rod] = {
+                                .pos = 90,
+                                .vel = 500,
+                                .accel = 5000,
+                            };
+                            cout << "Failed lower, raising..." << endl;
+                            control_task = control_task_raise;
+                        } else {
+                            cout << "shoot" << endl;
+                            control_task = control_task_shoot;
+                        }
                     } else {
                         cout << "push" << endl;
                         mtr_cmds[lin][rod] = {
                             .pos = goal_cm - plr_offset_cm - dir * (ball_rad + foot_width/2),
                             .vel = 1.5,
-                            .accel = 5,
+                            .accel = 3,
                         };
                         control_task = control_task_push;
                     }
@@ -948,7 +1007,7 @@ int main(int argc, char** argv){
                     // h\sin\theta = dx \implies \theta \approx dx/h
                     double target_deg = 1.4 * (rod_pos[rod] - ball_pos[1]) / plr_height / deg_to_rad;
                     // Empirical offset from player shape
-                    target_deg -= 14;
+                    target_deg -= 5;
                     mtr_cmds[rot][rod] = {
                         .pos = target_deg,
                         .vel = 500,
