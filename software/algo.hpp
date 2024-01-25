@@ -22,6 +22,16 @@ typedef enum state_t {
     num_state_t
 } state_t;
 
+typedef enum control_task_t {
+    control_task_init,
+    control_task_raise,
+    control_task_move_lateral,
+    control_task_lower,
+    control_task_push,
+    control_task_shoot,
+    control_task_adjust,
+} control_task_t;
+
 struct motor_cmd {
     // NAN for unchanged
     double pos;
@@ -43,7 +53,20 @@ state_t algo_action(
         vector<motor_cmd> (&mtr_cmds)[num_axis_t]
 );
 
+/**
+ * Gets index of player currently closest to target_cm
+ */
 int closest_plr(int rod, double target_cm, double cur_pos);
 
+/**
+ * Gets x offset of a player on a specific rod
+ */
+double plr_offset(int plr, int rod);
+
+/**
+ * Gets rod closest to ball_cm
+ * ret[0]: side_t
+ * ret[1]: rod_t
+ */
 pair<side_t, rod_t> closest_rod(double ball_cm);
 

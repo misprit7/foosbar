@@ -39,9 +39,6 @@ state_t algo_action(params){
     return algo_fns[cur_state](cur_state, ball_pos, ball_vel, mtr_cmds);
 }
 
-/*
- * Gets index of player currently closest to target_cm
- */
 int closest_plr(int rod, double target_cm, double cur_pos){
     int plr1 = clamp((int)floor(num_plrs[rod] * target_cm / play_height), 0, num_plrs[rod]-1);
     double plr1_pos = bumper_width + plr_width/2 + plr1*plr_gap[rod] + cur_pos;
@@ -59,11 +56,10 @@ int closest_plr(int rod, double target_cm, double cur_pos){
         return plr1;
 }
 
-/*
- * Gets rod closest to ball_cm
- * ret[0]: side_t
- * ret[1]: rod_t
- */
+double plr_offset(int plr, int rod){
+    return bumper_width + plr_width/2 + plr*plr_gap[rod];
+}
+
 pair<side_t, rod_t> closest_rod(double ball_cm){
     if(ball_cm >= 3*rod_gap) return {human, goalie};
     if(ball_cm >= 2*rod_gap) return {human, two_bar};

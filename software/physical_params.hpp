@@ -86,6 +86,8 @@ const double table_height = 75.6;
 const double table_width = 139.5;
 
 const double plr_width = 3.073;
+const double foot_width = 2.23;
+const double plr_height = 6.75;
 
 const double bumper_width = 2.496;
 
@@ -124,7 +126,8 @@ const int vision_fps = 200;
  * Motor Parameters
  ******************************************************************************/
 const int lin_range_cnts[][2] = {
-    {-20200, 20},
+    /* {-20200, 20}, */
+    {-20180, 20},
     /* {-10150, 20}, */
     {-10130, 20},
     {-30370, 20},
