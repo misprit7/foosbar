@@ -470,22 +470,6 @@ int main(int argc, char** argv){
                 for(int j = 0; j < 3; ++j){
                     ball_vel[j] = num[j] / denom;
                 }
-                // Sometimes useful for debugging by printing out buffer
-                /* if(abs(ball_vel[1]) > 75){ */
-                /*     for(int i = 0; i < pos_buffer.size()-1; ++i){ */
-                /*         cout << pos_buffer[i].first << "; "; */
-                /*         for(int j = 0; j < 3; ++j){ */
-                /*             cout << pos_buffer[i].second[j] << ", "; */
-                /*         } */
-                /*         cout << endl; */
-                /*     } */
-                /*     cout << endl; */
-                /*     for(int j = 0; j < 3; ++j){ */
-                /*         cout << num[j] << ", " << denom << ", " << ball_vel[j] << endl; */
-                /*     } */
-                /*     terminate(); */
-                /* } */
-
             }
         }
     });
@@ -604,14 +588,18 @@ int main(int argc, char** argv){
     cout << fixed << setprecision(2);
     
     state_t state = state_controlled;
-    /* state_t state = state_defense; */
     control_task_t control_task = control_task_init;
+    bool control_task_shooting = false;
+
 
     /* for(int i = 0; i < 2; ++i){ */
     /*     double start_t = mgr.TimeStampMsec(); */
     /*     move_rot(i, 90); */
     /*     cout << mgr.TimeStampMsec() - start_t << endl; */
     /* } */
+
+    // So that motor cur_pos is updated by the first loop
+    this_thread::sleep_for(chrono::microseconds(100000));
 
     for(ever){
 
@@ -883,13 +871,27 @@ int main(int argc, char** argv){
 
             double plr_offset_cm = plr_offset(plr, rod);
 
+            // Location of the ball in degrees of rotation of the player
+            // Using \sin\theta \approx \theta
+            // h\sin\theta = dx \implies \theta \approx dx/h
+            double ball_deg = (rod_pos[rod] - ball_pos[1]) / plr_height / deg_to_rad;
+
+            // Whether to move clockwise or not
+            // This is only relevant for a few of the modes, but it's shared so it's defined here
+            // Only move clockwise if both in front of the ball and we're on the inconvenient side
+            bool cw = abs(cur_pos[lin][rod] + plr_offset_cm - ball_pos[0]) < ball_rad + plr_width/2
+                && cur_pos[rot][rod] * deg_to_rad * plr_height <= rod_pos[rod] - ball_pos[1];
+
+            // Convenience macros for waiting for rot/lin motions to finish respectively
+#define wait_rot if(abs(cur_pos[rot][rod] - mtr_last_cmd[rot][rod].pos) < 1.0)
+#define wait_lin if(abs(cur_pos[lin][rod] - mtr_last_cmd[lin][rod].pos) < 0.1)
 
             // Second state machine specifically for micro control tasks
             // Could combine this but these are much lower level tasks than high level states
             switch(control_task){
             case control_task_init:
                 mtr_cmds[rot][rod] = {
-                    .pos = 90,
+                    .pos = cw ? -360.0 + 90 : 90,
                     .vel = 500,
                     .accel = 5000,
                 };
@@ -901,10 +903,10 @@ int main(int argc, char** argv){
                 };
                 control_task = control_task_raise;
                 cout << "raise" << endl;
-                cout << plr << ", " << dir << ", " << setup_offset << ", " << ball_in_pos << ", " << ball_in_rot  << ", " << rod_pos[rod]  << ", " << ball_pos[0] << ", " << ball_pos[1] << ", " << ball_pos[2] << endl;
+                cout << cw << ", " << plr << ", " << dir << ", " << setup_offset << ", " << ball_in_pos << ", " << ball_in_rot  << ", " << rod_pos[rod]  << ", " << ball_pos[0] << ", " << ball_pos[1] << ", " << ball_pos[2] << endl;
                 break;
             case control_task_raise:
-                if(abs(cur_pos[rot][rod] - 90) < 1.0){
+                wait_rot{
                     double offset = ball_in_pos ? 0.2 : 0.5;
                     double target_cm = ball_pos[0] - dir*(ball_rad + foot_width/2 + offset);
                     // If in position but not rotated, go directly to the ball to adjust it
@@ -924,9 +926,9 @@ int main(int argc, char** argv){
                 }
                 break;
             case control_task_move_lateral:
-                if(abs(cur_pos[lin][rod] - mtr_last_cmd[lin][rod].pos) < 0.1){
+                wait_lin{
                     mtr_cmds[rot][rod] = {
-                        .pos = 0,
+                        .pos = ball_deg - 4,
                         .vel = 50,
                         .accel = 500,
                     };
@@ -935,7 +937,7 @@ int main(int argc, char** argv){
                 }
                 break;
             case control_task_adjust_move:
-                if(abs(cur_pos[lin][rod] - mtr_last_cmd[lin][rod].pos) < 0.1){
+                wait_lin{
                     double pos = ball_pos[1] < rod_pos[rod] ? 55 : 360 - 55;
                     mtr_cmds[rot][rod] = {
                         .pos = pos,
@@ -948,11 +950,11 @@ int main(int argc, char** argv){
 
                 break;
             case control_task_adjust_down:
-                if(abs(cur_pos[rot][rod] - mtr_last_cmd[rot][rod].pos) < 1.0){
+                wait_rot{
                     double last_deg = mtr_last_cmd[rot][rod].pos;
                     // Check for first, fast section of move and finish slowly
                     if(last_deg >= 45 && last_deg <= 360 - 45){
-                        double pos = ball_pos[1] < rod_pos[rod] ? 20 : 360 - 30;
+                        double pos = ball_pos[1] < rod_pos[rod] ? 15 : 360 - 30;
                         mtr_cmds[rot][rod] = {
                             .pos = pos,
                             .vel = 10,
@@ -960,10 +962,6 @@ int main(int argc, char** argv){
                         };
                         break;
                     }
-                    // Whether to move clockwise or not
-                    // Only move clockwise if both in front of the ball and we're on the inconvenient side
-                    bool cw = abs(cur_pos[lin][rod] - plr_offset_cm - ball_pos[0]) < ball_rad + plr_width/2
-                        && cur_pos[rot][rod] * deg_to_rad * plr_height <= rod_pos[rod] - ball_pos[1];
                     mtr_cmds[rot][rod] = {
                         .pos = cw ? -360.0 + 90 : 90,
                         .vel = 500,
@@ -974,7 +972,7 @@ int main(int argc, char** argv){
                 }
                 break;
             case control_task_lower:
-                if(abs(cur_pos[rot][rod]) < 1.0){
+                wait_rot{
                     if(ball_in_pos){
                         double target_cm = ball_pos[0] - dir*(ball_rad + foot_width/2);
                         if(abs(cur_pos[lin][0] + plr_offset_cm - target_cm) > 1){
@@ -987,7 +985,20 @@ int main(int argc, char** argv){
                             control_task = control_task_raise;
                         } else {
                             cout << "shoot" << endl;
-                            control_task = control_task_shoot;
+                            int r = rand() % 3;
+                            if(r == 0){
+                                mtr_cmds[rot][rod] = {
+                                    .pos = ball_deg + 45,
+                                    .vel = 5000,
+                                    .accel = 50000,
+                                };
+                                control_task = control_task_shoot_straight;
+                            } else if(r == 1){
+                                control_task = control_task_shoot_middle;
+                            } else{
+                                control_task = control_task_shoot_end;
+                            }
+                            control_task_shooting = true;
                         }
                     } else {
                         cout << "push" << endl;
@@ -1003,9 +1014,7 @@ int main(int argc, char** argv){
             case control_task_push:
                 // Don't rapid fire commands
                 if(mgr.TimeStampMsec() - mtr_t_last_cmd[lin][rod] > 50){
-                    // Using \sin\theta \approx \theta
-                    // h\sin\theta = dx \implies \theta \approx dx/h
-                    double target_deg = 1.4 * (rod_pos[rod] - ball_pos[1]) / plr_height / deg_to_rad;
+                    double target_deg = 1.4 * ball_deg;
                     // Empirical offset from player shape
                     target_deg -= 5;
                     mtr_cmds[rot][rod] = {
@@ -1024,7 +1033,18 @@ int main(int argc, char** argv){
                     control_task = control_task_raise;
                 }
                 break;
-            case control_task_shoot:
+            case control_task_shoot_straight:
+                wait_rot{
+                    mtr_cmds[lin][rod] = {
+                        .pos = ball_pos[0] - plr_offset_cm,
+                        .vel = 1.5,
+                        .accel = 3,
+                    };
+                }
+                break;
+            case control_task_shoot_middle:
+                break;
+            case control_task_shoot_end:
                 break;
             default:
                 break;
