@@ -587,9 +587,12 @@ int main(int argc, char** argv){
     cout << endl;
     cout << fixed << setprecision(2);
     
-    state_t state = state_controlled;
+    /* state_t state = state_controlled; */
+    state_t state = state_defense;
     control_task_t control_task = control_task_init;
-    bool control_task_shooting = false;
+    double control_task_timer = mgr.TimeStampMsec();
+    // 1 = right, -1 = left, 0 = not shooting
+    int control_task_shoot_dir = 0;
 
 
     /* for(int i = 0; i < 2; ++i){ */
@@ -655,6 +658,8 @@ int main(int argc, char** argv){
             }
         }
 
+        double time_ms = mgr.TimeStampMsec();
+
         if(controller){
             for(int i = 0; i < num_rod_t; ++i){
                 double ws_pos, ws_pos_updated, ws_rot, ws_rot_updated;
@@ -695,7 +700,7 @@ int main(int argc, char** argv){
                 int rod = i + front;
 
                 // Don't send commands too often
-                if(mgr.TimeStampMsec() - mtr_t_last_cmd[lin][rod] < cooldown_time) continue;
+                if(time_ms - mtr_t_last_cmd[lin][rod] < cooldown_time) continue;
 
                 double target_cm = ball_pos[0];
 
@@ -859,7 +864,9 @@ int main(int argc, char** argv){
             bool ball_in_pos = abs(ball_pos[0] - goal_cm) <= 1;
             bool ball_in_rot = abs(ball_pos[1] - rod_pos[rod]) <= 1;
             // If already close we want to prepare the shot
-            if(ball_in_pos){
+            if(control_task_shoot_dir != 0){
+                plr = 1, dir = control_task_shoot_dir;
+            } else if(ball_in_pos){
                 plr = 1, dir = ball_pos[0] >= play_height / 2 ? -1 : 1;
             } else if(ball_pos[0] < setup_offset){
                 plr = 0, dir = 1;
@@ -885,6 +892,7 @@ int main(int argc, char** argv){
             // Convenience macros for waiting for rot/lin motions to finish respectively
 #define wait_rot if(abs(cur_pos[rot][rod] - mtr_last_cmd[rot][rod].pos) < 1.0)
 #define wait_lin if(abs(cur_pos[lin][rod] - mtr_last_cmd[lin][rod].pos) < 0.1)
+#define wait_time(T) if(time_ms - control_task_timer >= (T))
 
             // Second state machine specifically for micro control tasks
             // Could combine this but these are much lower level tasks than high level states
@@ -985,20 +993,10 @@ int main(int argc, char** argv){
                             control_task = control_task_raise;
                         } else {
                             cout << "shoot" << endl;
-                            int r = rand() % 3;
-                            if(r == 0){
-                                mtr_cmds[rot][rod] = {
-                                    .pos = ball_deg + 45,
-                                    .vel = 5000,
-                                    .accel = 50000,
-                                };
-                                control_task = control_task_shoot_straight;
-                            } else if(r == 1){
-                                control_task = control_task_shoot_middle;
-                            } else{
-                                control_task = control_task_shoot_end;
-                            }
-                            control_task_shooting = true;
+                            control_task = control_task_shoot_wait;
+                            control_task_shoot_dir = dir;
+                            // Random 0-2s, plus 500ms minimum delay
+                            control_task_timer = time_ms + (rand() % 2000);
                         }
                     } else {
                         cout << "push" << endl;
@@ -1013,8 +1011,8 @@ int main(int argc, char** argv){
                 break;
             case control_task_push:
                 // Don't rapid fire commands
-                if(mgr.TimeStampMsec() - mtr_t_last_cmd[lin][rod] > 50){
-                    double target_deg = 1.4 * ball_deg;
+                if(time_ms - mtr_t_last_cmd[lin][rod] > 50){
+                    double target_deg = 1.3 * ball_deg;
                     // Empirical offset from player shape
                     target_deg -= 5;
                     mtr_cmds[rot][rod] = {
@@ -1033,19 +1031,118 @@ int main(int argc, char** argv){
                     control_task = control_task_raise;
                 }
                 break;
+            case control_task_shoot_wait:
+                wait_time(500){
+                    /* int r = rand() % 3; */
+                    int r = 2;
+                    if(r == 0){
+                        mtr_cmds[rot][rod] = {
+                            .pos = 80,
+                            .vel = 5000,
+                            .accel = 50000,
+                        };
+                        cout << "shoot straight" << endl;
+                        control_task = control_task_shoot_straight;
+                    } else if(r == 1){
+                        mtr_cmds[lin][rod] = {
+                            .pos = play_height/2 - plr_offset_cm,
+                            .vel = 200,
+                            .accel = 1500,
+                        };
+                        cout << "shoot middle" << endl;
+                        control_task = control_task_shoot_middle;
+                    } else{
+                        double target_cm = control_task_shoot_dir == -1 ? setup_offset : play_height - setup_offset;
+                        mtr_cmds[lin][rod] = {
+                            .pos = target_cm - plr_offset_cm,
+                            .vel = 200,
+                            .accel = 2000,
+                        };
+                        cout << "shoot end" << endl;
+                        control_task = control_task_shoot_end;
+                    }
+                    control_task_timer = time_ms;
+                }
+                break;
             case control_task_shoot_straight:
-                wait_rot{
+                wait_time(30){
                     mtr_cmds[lin][rod] = {
                         .pos = ball_pos[0] - plr_offset_cm,
-                        .vel = 1.5,
-                        .accel = 3,
+                        .vel = 200,
+                        .accel = 2000,
                     };
+                    control_task_timer = time_ms;
+                    control_task = control_task_shoot_straight_2;
+                }
+                break;
+            case control_task_shoot_straight_2:
+                wait_time(30){
+                    mtr_cmds[rot][rod] = {
+                        .pos = -90,
+                        .vel = 10000,
+                        .accel = 100000,
+                    };
+                    control_task_timer = time_ms;
+                    cout << "idle" << endl;
+                    control_task = control_task_idle;
                 }
                 break;
             case control_task_shoot_middle:
+                wait_time(30){
+                    mtr_cmds[rot][rod] = {
+                        .pos = 55,
+                        .vel = 10000,
+                        .accel = 100000,
+                    };
+                    mtr_cmds[lin][rod] = {
+                        .pos = play_height/2 - plr_offset_cm,
+                        .vel = 200,
+                        .accel = 3000,
+                    };
+                    control_task_timer = time_ms;
+                    control_task = control_task_shoot_middle_2;
+                }
+                break;
+            case control_task_shoot_middle_2:
+                wait_time(50){
+                    mtr_cmds[rot][rod] = {
+                        .pos = -90,
+                        .vel = 10000,
+                        .accel = 100000,
+                    };
+                    control_task_timer = time_ms;
+                    control_task = control_task_idle;
+                }
                 break;
             case control_task_shoot_end:
+                wait_time(45){
+                    mtr_cmds[rot][rod] = {
+                        .pos = 80,
+                        .vel = 22000,
+                        .accel = 220000,
+                    };
+                    double target_cm = control_task_shoot_dir == -1 ? setup_offset : play_height - setup_offset;
+                    mtr_cmds[lin][rod] = {
+                        .pos = target_cm - plr_offset_cm,
+                        .vel = 200,
+                        .accel = 3000,
+                    };
+                    control_task_timer = time_ms;
+                    control_task = control_task_shoot_end_2;
+                }
                 break;
+            case control_task_shoot_end_2:
+                wait_time(80){
+                    mtr_cmds[rot][rod] = {
+                        .pos = -90,
+                        .vel = 22000,
+                        .accel = 220000,
+                    };
+                    control_task_timer = time_ms;
+                    control_task = control_task_idle;
+                }
+                break;
+            case control_task_idle:
             default:
                 break;
             }
@@ -1058,7 +1155,7 @@ int main(int argc, char** argv){
 
         /* print_status(status.str(), true); */
         /* cout << ball_pos_lcl[0] << ", " << ball_pos_lcl[1] << "; v: " << ball_vel_lcl[0] << ", " << ball_vel_lcl[1] << endl; */
-        /* cout << mgr.TimeStampMsec() - start_t << endl; */
+        /* cout << time_ms - start_t << endl; */
 
         this_thread::sleep_for(chrono::microseconds(500));
     }
