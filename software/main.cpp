@@ -587,8 +587,8 @@ int main(int argc, char** argv){
     cout << endl;
     cout << fixed << setprecision(2);
     
-    /* state_t state = state_controlled; */
-    state_t state = state_defense;
+    state_t state = state_controlled;
+    /* state_t state = state_defense; */
     control_task_t control_task = control_task_init;
     double control_task_timer = mgr.TimeStampMsec();
     // 1 = right, -1 = left, 0 = not shooting

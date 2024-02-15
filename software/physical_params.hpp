@@ -79,19 +79,20 @@ typedef enum side_t {
      └──────────────────────────────────────┘▼
  */
 
-const double play_height = 68;
-const double play_width = 116.6;
+const double play_height = 68.2;
+const double play_width = 119.6;
 
-const double table_height = 75.6;
-const double table_width = 139.5;
+const double table_height = 76.2;
+const double table_width = 141.9;
 
-const double plr_width = 3.073;
-const double foot_width = 2.23;
-const double plr_height = 6.75;
+const double plr_width = 3.176;
+const double foot_width = 2.25;
+const double plr_height = 7.24;
 
-const double bumper_width = 2.496;
+// Includes bearing
+const double bumper_width = 2.8;
 
-const double rod_gap = 101.7/7;
+const double rod_gap = 89.55/6;
 
 // From the perspective of robot, obviously minus for human
 const double rod_pos[num_rod_t] = {
