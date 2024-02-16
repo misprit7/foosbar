@@ -479,9 +479,6 @@ int main(int argc, char** argv){
      **************************************************************************/
 
     // Do this on the main thread just to make sure that everything is initialized
-    int init_err = motors_init();
-    if(init_err < 0) return init_err;
-
     mutex mtr_mutex;
 
     const struct motor_cmd null_cmd = {NAN, NAN, NAN};
@@ -514,69 +511,74 @@ int main(int argc, char** argv){
         }
     }
 
-    // This is the only thread that should ever query motors directly
-    thread mtr_thread([&mtr_mutex, &mtr_cmds, &mtr_t_last_update, &mtr_t_last_cmd, &mtr_last_cmd, &cur_pos]() {
+    if(!no_motors){
+        int init_err = motors_init();
+        if(init_err < 0) return init_err;
 
-        const double mtr_refresh_t_ms = 100;
+        // This is the only thread that should ever query motors directly
+        thread mtr_thread([&mtr_mutex, &mtr_cmds, &mtr_t_last_update, &mtr_t_last_cmd, &mtr_last_cmd, &cur_pos]() {
 
-        auto exec_cmds = [&](){
-            for(int a = 0; a < num_axis_t; ++a){
-                for(int r = 0; r < num_rod_t; ++r){
-                    // Awkward to make sure thread safe
-                    vector<function<void(void)>> moves;
-                    {
-                        lock_guard<mutex> lock(mtr_mutex);
-                        motor_cmd cmd = mtr_cmds[a][r];
-                        motor_cmd last_cmd = mtr_last_cmd[a][r];
+            const double mtr_refresh_t_ms = 100;
 
-                        if((!isnan(cmd.vel) && abs(cmd.vel - last_cmd.vel) > eps)
-                                || (!isnan(cmd.accel) && abs(cmd.accel - last_cmd.accel) > eps)){
-                            moves.push_back([a, r, cmd](){
-                                mtr_set_speed[a](r, cmd.vel, cmd.accel);
-                            });
-                            if(!isnan(cmd.vel))
-                                mtr_last_cmd[a][r].vel = cmd.vel;
-                            if(!isnan(cmd.accel))
-                                mtr_last_cmd[a][r].accel = cmd.accel;
-                            mtr_t_last_cmd[a][r] = mgr.TimeStampMsec();
+            auto exec_cmds = [&](){
+                for(int a = 0; a < num_axis_t; ++a){
+                    for(int r = 0; r < num_rod_t; ++r){
+                        // Awkward to make sure thread safe
+                        vector<function<void(void)>> moves;
+                        {
+                            lock_guard<mutex> lock(mtr_mutex);
+                            motor_cmd cmd = mtr_cmds[a][r];
+                            motor_cmd last_cmd = mtr_last_cmd[a][r];
+
+                            if((!isnan(cmd.vel) && abs(cmd.vel - last_cmd.vel) > eps)
+                                    || (!isnan(cmd.accel) && abs(cmd.accel - last_cmd.accel) > eps)){
+                                moves.push_back([a, r, cmd](){
+                                    mtr_set_speed[a](r, cmd.vel, cmd.accel);
+                                });
+                                if(!isnan(cmd.vel))
+                                    mtr_last_cmd[a][r].vel = cmd.vel;
+                                if(!isnan(cmd.accel))
+                                    mtr_last_cmd[a][r].accel = cmd.accel;
+                                mtr_t_last_cmd[a][r] = mgr.TimeStampMsec();
+                            }
+
+                            if(!isnan(cmd.pos) && abs(cmd.pos - last_cmd.pos) > eps){
+                                moves.push_back([a, r, cmd](){
+                                    mtr_move[a](r, cmd.pos);
+                                });
+                                mtr_last_cmd[a][r].pos = cmd.pos;
+                                mtr_t_last_cmd[a][r] = mgr.TimeStampMsec();
+                            }
                         }
-
-                        if(!isnan(cmd.pos) && abs(cmd.pos - last_cmd.pos) > eps){
-                            moves.push_back([a, r, cmd](){
-                                mtr_move[a](r, cmd.pos);
-                            });
-                            mtr_last_cmd[a][r].pos = cmd.pos;
-                            mtr_t_last_cmd[a][r] = mgr.TimeStampMsec();
+                        // This is outside the lock's scope to avoid holding mutex too long
+                        for(auto fn : moves){
+                            fn();
                         }
-                    }
-                    // This is outside the lock's scope to avoid holding mutex too long
-                    for(auto fn : moves){
-                        fn();
                     }
                 }
-            }
-        };
-        for(ever){
-            for(int a = 0; a < num_axis_t; ++a){
-                for(int r = 0; r < num_rod_t; ++r){
-                    exec_cmds();
-                    if(mgr.TimeStampMsec() - mtr_t_last_update[a][r] > mtr_refresh_t_ms){
-                        lock_guard<mutex> lock(mtr_mutex);
-                        if(a == lin){
-                            cur_pos[a][r] = abs(nodes[lin][r].get().Motion.PosnMeasured.Value()
-                                    / lin_cm_to_cnts[r]);
+            };
+            for(ever){
+                for(int a = 0; a < num_axis_t; ++a){
+                    for(int r = 0; r < num_rod_t; ++r){
+                        exec_cmds();
+                        if(mgr.TimeStampMsec() - mtr_t_last_update[a][r] > mtr_refresh_t_ms){
+                            lock_guard<mutex> lock(mtr_mutex);
+                            if(a == lin){
+                                cur_pos[a][r] = abs(nodes[lin][r].get().Motion.PosnMeasured.Value()
+                                        / lin_cm_to_cnts[r]);
+                            } else {
+                                cur_pos[a][r] = nodes[rot][r].get().Motion.PosnMeasured.Value()
+                                        / rot_rad_to_cnts[r] / deg_to_rad;
+                            }
+                            mtr_t_last_update[a][r] = mgr.TimeStampMsec();
                         } else {
-                            cur_pos[a][r] = nodes[rot][r].get().Motion.PosnMeasured.Value()
-                                    / rot_rad_to_cnts[r] / deg_to_rad;
+                            this_thread::sleep_for(chrono::microseconds(100));
                         }
-                        mtr_t_last_update[a][r] = mgr.TimeStampMsec();
-                    } else {
-                        this_thread::sleep_for(chrono::microseconds(100));
                     }
                 }
             }
-        }
-    });
+        });
+    }
 
     /**************************************************************************
      * Main Event Loop
@@ -587,8 +589,8 @@ int main(int argc, char** argv){
     cout << endl;
     cout << fixed << setprecision(2);
     
-    state_t state = state_controlled;
-    /* state_t state = state_defense; */
+    /* state_t state = state_controlled; */
+    state_t state = state_defense;
     control_task_t control_task = control_task_init;
     double control_task_timer = mgr.TimeStampMsec();
     // 1 = right, -1 = left, 0 = not shooting
@@ -660,23 +662,24 @@ int main(int argc, char** argv){
 
         double time_ms = mgr.TimeStampMsec();
 
+
         if(controller){
-            for(int i = 0; i < num_rod_t; ++i){
-                double ws_pos, ws_pos_updated, ws_rot, ws_rot_updated;
-                {
-                    lock_guard<mutex> lock(ws_mutex);
-                    ws_pos = tgt_pos[i];
-                    ws_pos_updated = tgt_pos_updated[i];
-                    ws_rot = tgt_rot[i];
-                    ws_rot_updated = tgt_rot_updated[i];
+            for(int r = 0; r < num_rod_t; ++r){
+
+                lock_guard<mutex> lock(ws_mutex);
+                if(tgt_pos_updated[r]){
+                    mtr_cmds[lin][r] = {
+                        .pos = lin_range_cm[r] * tgt_pos[r],
+                        .vel = 100,
+                        .accel = 100,
+                    };
                 }
-                if(ws_pos_updated){
-                    move_lin(i, lin_range_cm[i] * ws_pos);
-                    ws_pos_updated = false;
-                }
-                if(ws_rot_updated){
-                    move_rot(i, ws_rot / deg_to_rad);
-                    ws_rot_updated = false;
+                if(tgt_rot_updated[r]){
+                    mtr_cmds[rot][r] = {
+                        .pos = tgt_rot[r] / deg_to_rad,
+                        .vel = 500,
+                        .accel = 1000,
+                    };
                 }
             }
         // Yes, else switch is just as much as a thing as else if
@@ -686,7 +689,7 @@ int main(int argc, char** argv){
             int front;
             pair<side_t, rod_t> closest = closest_rod(ball_pos[1]);
             if(closest.first == bot){
-                state = state_uncontrolled;
+                /* state = state_uncontrolled; */
                 break;
             }
             if(closest.second == three_bar) front = two_bar;
@@ -743,7 +746,7 @@ int main(int argc, char** argv){
 
                 // Hysteresis to prevent rapid commands
                 /* cout << cur_pos[lin][rod] << endl; */
-                if(move_cm > 0.5 && !no_motors){
+                if(move_cm > 0.5){
                     double accel = 1000 * clamp(move_cm / 2, 0.0, 1.0);
                     if(front < two_bar && rod >= two_bar){
                         accel = 50;
@@ -1153,7 +1156,7 @@ int main(int argc, char** argv){
             break;
         }
 
-        /* print_status(status.str(), true); */
+        print_status(status.str(), true);
         /* cout << ball_pos_lcl[0] << ", " << ball_pos_lcl[1] << "; v: " << ball_vel_lcl[0] << ", " << ball_vel_lcl[1] << endl; */
         /* cout << time_ms - start_t << endl; */
 

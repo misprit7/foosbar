@@ -88,7 +88,9 @@ loader.load('assets/table.glb', function(gltf) {
  * Set up websocket
  ******************************************************************************/
 
-const ws = new WebSocket('ws://localhost:9001/position');
+// const ws = new WebSocket('ws://localhost:9001/position');
+// const ws = new WebSocket('ws://75.157.213.247:9001/position');
+const ws = new WebSocket('ws://192.168.1.77:9001/position');
 
 // Should probably be a callback when ws connects
 setTimeout(function() {
@@ -108,11 +110,11 @@ setTimeout(function() {
                 const bluerod = blue_rods.children[i];
                 bluerod.position.z = bluerod.offset + (packet['bluepos'][i]-1/2)*limits[i];
 
-                red_rods.children[i].rotation.y = (packet['redrot'][i]);
-                blue_rods.children[i].rotation.y = (packet['bluerot'][i]);
+                red_rods.children[i].rotation.y = (packet['redrot'][i] / 360 * (2*Math.PI));
+                blue_rods.children[i].rotation.y = (packet['bluerot'][i] / 360 * (2*Math.PI));
             }
-            ball.position.x = (packet['ballpos'][1]-0.5) * table_height;
-            ball.position.z = (packet['ballpos'][0]-0.5) * table_width;
+            ball.position.x = (packet['ballpos'][1]) * table_height;
+            ball.position.z = (packet['ballpos'][0] - 0.5) * table_width;
         }
     }
 }, 300);
@@ -227,8 +229,8 @@ function animate() {
 
         outlinePass.selectedObjects = [rod];
 
-        const lin_speed = 0.20;
-        const rot_speed = 0.2;
+        const lin_speed = 0.10;
+        const rot_speed = 0.10;
 
         let dz = 0, drot = 0;
         if(gamepads.length > 0){
@@ -237,6 +239,7 @@ function animate() {
             const joystickLeftY = gamepad.axes[1];
             const joystickRightX = gamepad.axes[2];
             const joystickRightY = gamepad.axes[3];
+            const leftTrigger = gamepad.buttons[7].pressed;
 
             // console.log(gamepad.axes[5]);
             if(gamepad.axes[5] != dpad_y_last){
@@ -246,8 +249,8 @@ function animate() {
                 }
             }
 
-            dz = lin_speed * joystickLeftX;
-            drot = rot_speed * joystickRightY;
+            dz = lin_speed * joystickLeftX / (leftTrigger ? 4 : 1);
+            drot = rot_speed * joystickRightY / (leftTrigger ? 4 : 1);
         } else {
             dz = (left_pressed ?- lin_speed : 0) + (right_pressed ? lin_speed : 0);
             drot = (rot_down_pressed ?- rot_speed : 0) + (rot_up_pressed ? rot_speed : 0);
