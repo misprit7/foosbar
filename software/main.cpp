@@ -308,6 +308,9 @@ int main(int argc, char** argv){
         }
     }
 
+    // For some reason first call gives garbage value
+    (void) mgr.TimeStampMsec();
+
     /**************************************************************************
      * WebSocket Init
      **************************************************************************/
@@ -397,7 +400,11 @@ int main(int argc, char** argv){
     vector<double> ball_pos = {0, 0, 0};
     vector<double> ball_vel = {0, 0, 0};
 
-    thread qtm_thread([&qtm_mutex, &ball_pos, &ball_vel]() {
+    double rod_pos[num_axis_t][num_rod_t] = {{0,0,0,0}, {0,0,0,0}};
+
+    double qtm_time = 0;
+
+    thread qtm_thread([&qtm_mutex, &ball_pos, &ball_vel, &rod_pos, &qtm_time]() {
         CRTProtocol rtProtocol;
 
         const char           serverAddr[] = "192.168.155.1";
@@ -425,33 +432,50 @@ int main(int argc, char** argv){
         
         deque<pair<double, vector<double>>> pos_buffer;
         const int buf_cap = vision_fps;
-        const double gamma = 0.3; // Higher = more noise, less latency
+        const double gamma = 0.2; // Higher = more noise, less latency
         for(ever){
             CRTPacket::EPacketType packetType;
             if(rtProtocol.Receive(packetType, true, 0) == CNetwork::ResponseType::success){
                 if(packetType != CRTPacket::PacketData) continue;
                 lock_guard<mutex> lock(qtm_mutex);
+                double t_start = mgr.TimeStampMsec();
 
                 CRTPacket *rtPacket = rtProtocol.GetRTPacket();
 
-                if(rtPacket->Get3DNoLabelsMarkerCount() < 1){
-                    // Assume ball stays in place
-                    if(pos_buffer.size() <= 0) continue;
-                    pos_buffer.push_front({mgr.TimeStampMsec(), pos_buffer[0].second});
-                } else {
-
+                bool ball_seen = false;
+                for(int m = 0; m < rtPacket->Get3DNoLabelsMarkerCount(); ++m){
+                    
                     // Not read directly since we want doubles not floats
-                    vector<float> ball_pos_tmp = {0, 0, 0};
+                    vector<float> marker_pos = {0, 0, 0};
                     unsigned int n;
-                    rtPacket->Get3DNoLabelsMarker(0, ball_pos_tmp[0], ball_pos_tmp[1], ball_pos_tmp[2], n);
+                    rtPacket->Get3DNoLabelsMarker(m, marker_pos[0], marker_pos[1], marker_pos[2], n);
                     for(int i = 0; i < 3; ++i){
-                        ball_pos[i] = ball_pos_tmp[i] / 10; // convert to mm from cm
-                        ball_pos[i] -= cal_offset[i];
+                        marker_pos[i] = marker_pos[i] / 10; // convert to mm from cm
+                        marker_pos[i] -= cal_offset[i];
                     }
                     // Offset convention, 0 at edge of table
-                    ball_pos[0] += play_height / 2;
+                    marker_pos[0] += play_height / 2;
 
-                    pos_buffer.push_front({mgr.TimeStampMsec(), ball_pos});
+                    if(marker_pos[2] < 2 && !ball_seen){
+                        // ball
+                        for(int i = 0; i < 3; ++i) ball_pos[i] = marker_pos[i];
+                        pos_buffer.push_front({mgr.TimeStampMsec(), ball_pos});
+                        ball_seen = true;
+                    } else if(marker_pos[2] > plr_height){
+                        // hat
+                        auto [side, rod] = closest_rod(marker_pos[1]);
+                        if(side != human) continue;
+                        double dy = marker_pos[1] - (-rod_coord[rod]);
+                        /* cout << marker_pos[1] << ", " << */ 
+                        rod_pos[rot][rod] = asin(clamp(dy/hat_height, -1.0, 1.0)) / deg_to_rad;
+                        rod_pos[lin][rod] = marker_pos[0];
+                    }
+
+
+                }
+                if(!ball_seen){
+                    if(pos_buffer.size() <= 0) continue;
+                    pos_buffer.push_front({mgr.TimeStampMsec(), pos_buffer[0].second});
                 }
                 if(pos_buffer.size() < buf_cap) continue;
                 pos_buffer.pop_back();
@@ -463,7 +487,8 @@ int main(int argc, char** argv){
                     for(int j = 0; j < 3; ++j){
                         // Important: the first one seems like it should be better, but it actually isn't
                         // Network delay is unpredictable, so sometimes timing we get it doesn't represent
-                        // timing the video was captured. This can give extraneous high spikes in velocity
+                        // timing the video was captured. This can give extraneous high spikes in velocity.
+                        // It does however rely on having a hardcoded fps which isn't ideal
                         /* num[j] += (pos_buffer[i].second[j] - pos_buffer[i+1].second[j]) * scale */
                         /*     / ((pos_buffer[i].first - pos_buffer[i+1].first)/1000); */
                         num[j] += (pos_buffer[i].second[j] - pos_buffer[i+1].second[j]) * scale * vision_fps;
@@ -472,6 +497,7 @@ int main(int argc, char** argv){
                 for(int j = 0; j < 3; ++j){
                     ball_vel[j] = num[j] / denom;
                 }
+                qtm_time = mgr.TimeStampMsec() - t_start;
             }
         }
     });
@@ -557,8 +583,15 @@ int main(int argc, char** argv){
                     }
                     // This is outside the lock's scope to avoid holding mutex too long
                     for(auto fn : moves){
-                        fn();
-                    }
+
+                        try{
+                            fn();
+                        } catch (sFnd::mnErr& theErr)
+                        {
+                            printf("Caught mnErr\n");
+                            printf("Caught error: addr=%d, err=0x%08x\nmsg=%s\n", theErr.TheAddr, theErr.ErrorCode, theErr.ErrorMsg);
+                            cout << endl << endl << endl << endl << endl << endl << endl << endl;
+                        }                    }
                 }
             }
         };
@@ -588,13 +621,12 @@ int main(int argc, char** argv){
      * Main Event Loop
      **************************************************************************/
 
-    try{
-
     cout << endl;
     cout << fixed << setprecision(2);
     
     /* state_t state = state_controlled; */
-    state_t state = state_defense;
+    /* state_t state = state_defense; */
+    state_t state = state_unknown;
     control_task_t control_task = control_task_init;
     double control_task_timer = mgr.TimeStampMsec();
     // 1 = right, -1 = left, 0 = not shooting
@@ -652,7 +684,14 @@ int main(int argc, char** argv){
         status << fixed << setprecision(3) << setw(10) << showpos;
         status << "Ball position: " << ball_pos[0] << ", " << ball_pos[1] << ", " << ball_pos[2] << "; ";
         status << "Ball velocity: " << ball_vel[0] << ", " << ball_vel[1] << ", " << ball_vel[2] << endl;
+        status << "Marker positions: " << rod_pos[lin][three_bar] << ", " << rod_pos[lin][five_bar] << ", " << rod_pos[lin][two_bar] << ", " << rod_pos[lin][goalie] << endl;
+        status << "Marker rotations: " << rod_pos[rot][three_bar] << ", " << rod_pos[rot][five_bar] << ", " << rod_pos[rot][two_bar] << ", " << rod_pos[rot][goalie] << endl;
         status << "State: " << state << endl;
+        status << "Three bar pos: " << cur_pos[lin][three_bar] << ", rot: " << cur_pos[rot][three_bar] << endl;
+
+        /* static int frame = 0; */
+        /* status << "Frame: " << ++frame << endl; */
+        /* status << "QTM time: " << qtm_time << endl; */
         string message = positionData.dump();
 
         {
@@ -694,7 +733,7 @@ int main(int argc, char** argv){
             int front;
             pair<side_t, rod_t> closest = closest_rod(ball_pos[1]);
             if(closest.first == bot){
-                /* state = state_uncontrolled; */
+                state = state_uncontrolled;
                 break;
             }
             if(closest.second == three_bar) front = two_bar;
@@ -751,7 +790,7 @@ int main(int argc, char** argv){
 
                 // Hysteresis to prevent rapid commands
                 /* cout << cur_pos[lin][rod] << endl; */
-                if(move_cm > 0.5){
+                if(move_cm > 1){
                     double accel = 1000 * clamp(move_cm / 2, 0.0, 1.0);
                     if(front < two_bar && rod >= two_bar){
                         accel = 50;
@@ -788,12 +827,12 @@ int main(int argc, char** argv){
         {
             for(int r = 0; r < num_rod_t; ++r){
                 // If ball is already past this rod, do nothing
-                if(ball_pos[1] < rod_pos[r]) continue;
+                if(ball_pos[1] < rod_coord[r]) continue;
 
                 // Predict trajectory
                 double target_cm = ball_pos[0];
                 // ball_vel[1] is negative so this is positive
-                double dt = (rod_pos[r] - ball_pos[1]) / ball_vel[1];
+                double dt = (rod_coord[r] - ball_pos[1]) / ball_vel[1];
                 target_cm += ball_vel[0] * dt;
                 /* cout << "dt: " << dt << ", ball_vel[0]: " << ball_vel[0] << ", ball_vel[1]: " << ball_vel[1] << ", target_cm: " << target_cm << endl; */
 
@@ -833,7 +872,7 @@ int main(int argc, char** argv){
                 };
             }
             double target_deg = ball_vel[1] > 0 ? -25 : 25;
-            if(abs(ball_vel[1]) < 10) target_deg = mtr_last_cmd[rot][rod].pos;
+            if(abs(ball_vel[1]) < 20) target_deg = mtr_last_cmd[rot][rod].pos;
             if(abs(mtr_last_cmd[rot][rod].pos - target_deg) >= eps){
                 mtr_cmds[rot][rod] = {
                     .pos = target_deg,
@@ -842,7 +881,12 @@ int main(int argc, char** argv){
                 };
             }
 
-            if(abs(ball_vel[1]) < 5){
+            static double t_last_move = mgr.TimeStampMsec();
+
+            if(abs(ball_vel[1]) > 20){
+                t_last_move = time_ms;
+            }
+            if(time_ms - t_last_move > 1000){
                 state = state_controlled;
             }
 
@@ -858,7 +902,6 @@ int main(int argc, char** argv){
             /*     break; */
             /* } */
             rod_t rod = closest.second;
-            status << "cur_pos[rot][rod]: " << cur_pos[rot][rod] << endl;
 
             // Small extra offset for a bit of tolerance without hitting the edge
             const double setup_offset = bumper_width + plr_gap[rod] + plr_width/2 + ball_rad + foot_width/2 + 1;
@@ -870,7 +913,7 @@ int main(int argc, char** argv){
             int plr = 0;
             int dir = 1;
             bool ball_in_pos = abs(ball_pos[0] - goal_cm) <= 1;
-            bool ball_in_rot = abs(ball_pos[1] - rod_pos[rod]) <= 1;
+            bool ball_in_rot = abs(ball_pos[1] - rod_coord[rod]) <= 1;
             // If already close we want to prepare the shot
             if(control_task_shoot_dir != 0){
                 plr = 1, dir = control_task_shoot_dir;
@@ -889,13 +932,13 @@ int main(int argc, char** argv){
             // Location of the ball in degrees of rotation of the player
             // Using \sin\theta \approx \theta
             // h\sin\theta = dx \implies \theta \approx dx/h
-            double ball_deg = (rod_pos[rod] - ball_pos[1]) / plr_height / deg_to_rad;
+            double ball_deg = (rod_coord[rod] - ball_pos[1]) / plr_height / deg_to_rad;
 
             // Whether to move clockwise or not
             // This is only relevant for a few of the modes, but it's shared so it's defined here
             // Only move clockwise if both in front of the ball and we're on the inconvenient side
             bool cw = abs(cur_pos[lin][rod] + plr_offset_cm - ball_pos[0]) < ball_rad + plr_width/2
-                && cur_pos[rot][rod] * deg_to_rad * plr_height <= rod_pos[rod] - ball_pos[1];
+                && cur_pos[rot][rod] * deg_to_rad * plr_height <= rod_coord[rod] - ball_pos[1];
 
             // Convenience macros for waiting for rot/lin motions to finish respectively
 #define wait_rot if(abs(cur_pos[rot][rod] - mtr_last_cmd[rot][rod].pos) < 1.0)
@@ -919,7 +962,6 @@ int main(int argc, char** argv){
                 };
                 control_task = control_task_raise;
                 cout << "raise" << endl;
-                cout << cw << ", " << plr << ", " << dir << ", " << setup_offset << ", " << ball_in_pos << ", " << ball_in_rot  << ", " << rod_pos[rod]  << ", " << ball_pos[0] << ", " << ball_pos[1] << ", " << ball_pos[2] << endl;
                 break;
             case control_task_raise:
                 wait_rot{
@@ -927,6 +969,8 @@ int main(int argc, char** argv){
                     double target_cm = ball_pos[0] - dir*(ball_rad + foot_width/2 + offset);
                     // If in position but not rotated, go directly to the ball to adjust it
                     if(ball_in_pos && !ball_in_rot){
+                        /* double sign = ball_pos[0] > goal_cm ? 1 : -1; */
+                        /* target_cm = ball_pos[0] + sign * dir * ball_rad / 2; */
                         target_cm = ball_pos[0];
                         control_task = control_task_adjust_move;
                     } else {
@@ -935,19 +979,20 @@ int main(int argc, char** argv){
 
                     mtr_cmds[lin][rod] = {
                         .pos = clamp(target_cm - plr_offset_cm, 0.0, lin_range_cm[rod]),
-                        .vel = ball_in_pos ? 20.0 : 50,
-                        .accel = ball_in_pos ? 200.0 : 500,
+                        /* .vel = ball_in_pos ? 20.0 : 50, */
+                        /* .accel = ball_in_pos ? 200.0 : 500, */
+                        .vel = 50,
+                        .accel = 500,
                     };
                     cout << "move_lateral" << endl;
                 }
                 break;
             case control_task_move_lateral:
-                cout << cur_pos[lin][rod] << ", " << mtr_last_cmd[lin][rod].pos << endl;
                 wait_lin{
                     mtr_cmds[rot][rod] = {
                         .pos = ball_deg - 4,
-                        .vel = 50,
-                        .accel = 500,
+                        .vel = 100,
+                        .accel = 1000,
                     };
                     control_task = control_task_lower;
                     cout << "lower" << endl;
@@ -955,11 +1000,11 @@ int main(int argc, char** argv){
                 break;
             case control_task_adjust_move:
                 wait_lin{
-                    double pos = ball_pos[1] < rod_pos[rod] ? 55 : 360 - 55;
+                    double pos = ball_pos[1] < rod_coord[rod] ? 55 : 360 - 55;
                     mtr_cmds[rot][rod] = {
                         .pos = pos,
-                        .vel = 100,
-                        .accel = 500,
+                        .vel = 150,
+                        .accel = 1000,
                     };
                     control_task = control_task_adjust_down;
                     cout << "adjust down" << endl;
@@ -971,7 +1016,7 @@ int main(int argc, char** argv){
                     double last_deg = mtr_last_cmd[rot][rod].pos;
                     // Check for first, fast section of move and finish slowly
                     if(last_deg >= 45 && last_deg <= 360 - 45){
-                        double pos = ball_pos[1] < rod_pos[rod] ? 15 : 360 - 30;
+                        double pos = ball_pos[1] < rod_coord[rod] ? 15 : 360 - 30;
                         mtr_cmds[rot][rod] = {
                             .pos = pos,
                             .vel = 10,
@@ -1011,7 +1056,7 @@ int main(int argc, char** argv){
                         cout << "push" << endl;
                         mtr_cmds[lin][rod] = {
                             .pos = goal_cm - plr_offset_cm - dir * (ball_rad + foot_width/2),
-                            .vel = 1.5,
+                            .vel = 2.5,
                             .accel = 3,
                         };
                         control_task = control_task_push;
@@ -1021,9 +1066,9 @@ int main(int argc, char** argv){
             case control_task_push:
                 // Don't rapid fire commands
                 if(time_ms - mtr_t_last_cmd[lin][rod] > 50){
-                    double target_deg = 1.3 * ball_deg;
+                    double target_deg = 1.4 * ball_deg;
                     // Empirical offset from player shape
-                    target_deg -= 5;
+                    /* target_deg -= 5; */
                     mtr_cmds[rot][rod] = {
                         .pos = target_deg,
                         .vel = 500,
@@ -1133,8 +1178,8 @@ int main(int argc, char** argv){
                     double target_cm = control_task_shoot_dir == -1 ? setup_offset : play_height - setup_offset;
                     mtr_cmds[lin][rod] = {
                         .pos = target_cm - plr_offset_cm,
-                        .vel = 200,
-                        .accel = 3000,
+                        .vel = 300,
+                        .accel = 5000,
                     };
                     control_task_timer = time_ms;
                     control_task = control_task_shoot_end_2;
@@ -1170,15 +1215,6 @@ int main(int argc, char** argv){
         this_thread::sleep_for(chrono::microseconds(500));
     }
 
-    } catch (sFnd::mnErr& theErr)
-	{
-		printf("Failed to disable Nodes n\n");
-		//This statement will print the address of the error, the error code (defined by the mnErr class), 
-		//as well as the corresponding error message.
-		printf("Caught error: addr=%d, err=0x%08x\nmsg=%s\n", theErr.TheAddr, theErr.ErrorCode, theErr.ErrorMsg);
-
-		return 0;  //This terminates the main program
-	}
 
     cout << "Got terminate command, quitting..." << endl;
     close_all();

@@ -14,10 +14,8 @@
 typedef enum state_t {
     state_defense,
     state_shot_defense,
-    state_shot_offense,
     state_uncontrolled,
     state_controlled,
-    state_shooting,
     state_unknown,
     num_state_t
 } state_t;

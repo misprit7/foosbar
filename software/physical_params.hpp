@@ -88,6 +88,7 @@ const double table_width = 141.9;
 const double plr_width = 3.176;
 const double foot_width = 2.25;
 const double plr_height = 7.24;
+const double hat_height = 4.2;
 
 // Includes bearing
 const double bumper_width = 2.8;
@@ -95,7 +96,7 @@ const double bumper_width = 2.8;
 const double rod_gap = 89.55/6;
 
 // From the perspective of robot, obviously minus for human
-const double rod_pos[num_rod_t] = {
+const double rod_coord[num_rod_t] = {
     1.5*rod_gap, -0.5*rod_gap, -2.5*rod_gap, -3.5*rod_gap
 };
 
