@@ -88,9 +88,9 @@ loader.load('assets/table.glb', function(gltf) {
  * Set up websocket
  ******************************************************************************/
 
-// const ws = new WebSocket('ws://localhost:9001/position');
+const ws = new WebSocket('ws://localhost:9001/position');
 // const ws = new WebSocket('ws://75.157.213.247:9001/position');
-const ws = new WebSocket('ws://192.168.1.77:9001/position');
+// const ws = new WebSocket('ws://192.168.1.77:9001/position');
 
 // Should probably be a callback when ws connects
 setTimeout(function() {
