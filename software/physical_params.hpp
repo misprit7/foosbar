@@ -90,6 +90,8 @@ const double foot_width = 2.25;
 const double plr_height = 7.24;
 const double hat_height = 4.2;
 
+const double goal_width = 20.45;
+
 // Includes bearing
 const double bumper_width = 2.8;
 
@@ -105,7 +107,7 @@ const double plr_gap[num_rod_t] = {
     (45.1 - 2*bumper_width - plr_width) / 2,
     (52.6 - 2*bumper_width - plr_width) / 4,
     (32.8 - 2*bumper_width - plr_width),
-    (45.1 - 2*bumper_width - plr_width) / 2,
+    (49.35 - 2*bumper_width - plr_width) / 2,
 };
 
 const int num_plrs[num_rod_t] = {
@@ -121,7 +123,7 @@ const double ball_rad = 3.475/2;
  * Vision Parameters
  ******************************************************************************/
 
-const double cal_offset[3] = {-4.5, -0.65, 2.1};
+const double cal_offset[3] = {-4.3, -0.65, 2.1};
 const int vision_fps = 200;
 
 /******************************************************************************
@@ -129,7 +131,7 @@ const int vision_fps = 200;
  ******************************************************************************/
 const int lin_range_cnts[][2] = {
     /* {-20200, 20}, */
-    {-20190, 50},
+    {-20190, 20},
     /* {-10150, 20}, */
     {-9990, 20},
     {-31400, 20},

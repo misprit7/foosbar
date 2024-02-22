@@ -2,6 +2,7 @@
 #include "algo.hpp"
 #include "physical_params.hpp"
 #include <algorithm>
+#include <iostream>
 
 using namespace std;
 
@@ -24,6 +25,23 @@ using namespace std;
 state_t algo_defense(params){
         
     return state_defense;
+}
+
+// Used for checking for blocking
+int closest_plr_ignore_walls(int rod, double target_cm, double cur_pos){
+    int plr1 = clamp((int)floor(num_plrs[rod] * target_cm / play_height), 0, num_plrs[rod]-1);
+    double plr1_pos = bumper_width + plr_width/2 + plr1*plr_gap[rod] + cur_pos;
+
+    int plr2 = plr1_pos > target_cm ? plr1-1 : plr1+1;
+
+    if(plr2 >= num_plrs[rod] || plr2 < 0) return plr1;
+    
+    double plr2_rest = bumper_width + plr_width/2 + plr2*plr_gap[rod];
+    double plr2_pos = plr2_rest + cur_pos;
+    if(abs(plr2_pos-target_cm) < abs(plr1_pos-target_cm))
+        return plr2;
+    else
+        return plr1;
 }
 
 /******************************************************************************
@@ -71,5 +89,16 @@ pair<side_t, rod_t> closest_rod(double ball_cm){
     return {bot, goalie};
 }
 
-
+bool is_blocked(int rod, double ball_cm, double rod_pos[num_axis_t], double tol){
+    if(ball_cm < play_height/2 - goal_width/2 || ball_cm > play_height/2 + goal_width/2)
+        return true;
+    int r = goalie;
+    while(-rod_coord[r] > rod_coord[rod]){
+        int plr = closest_plr_ignore_walls(r, ball_cm, rod_pos[r]);
+        if(abs(ball_cm - (plr_offset(plr, r) + rod_pos[r])) < ball_rad + foot_width/2 + tol) return true;
+        /* cout << r << ", " << plr_offset(plr, r) << ", " << rod_pos[r] << endl; */
+        --r;
+    }
+    return false;
+}
 

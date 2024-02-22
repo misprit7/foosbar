@@ -16,6 +16,8 @@ typedef enum state_t {
     state_shot_defense,
     state_uncontrolled,
     state_controlled,
+    state_snake,
+    state_test,
     state_unknown,
     num_state_t
 } state_t;
@@ -75,4 +77,13 @@ double plr_offset(int plr, int rod);
  * ret[1]: rod_t
  */
 pair<side_t, rod_t> closest_rod(double ball_cm);
+
+/**
+ * Determines if ball shot from a position will be blocked
+ * rod: rod ball is being shot from
+ * ball_cm: ball x coordinate
+ * rod_pos: positions of 0th plr on each human rod
+ * tol: extra tolerance for error
+ */
+bool is_blocked(int rod, double ball_cm, double rod_pos[num_axis_t], double tol=0);
 
