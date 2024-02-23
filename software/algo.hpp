@@ -35,6 +35,7 @@ typedef enum control_task_t {
     control_task_shoot_middle_2,
     control_task_shoot_end,
     control_task_shoot_end_2,
+    control_task_shoot_end_3,
     control_task_adjust_move,
     control_task_adjust_down,
     control_task_idle,
