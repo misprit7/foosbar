@@ -87,7 +87,8 @@ const double table_width = 141.9;
 
 const double plr_width = 3.176;
 const double foot_width = 2.25;
-const double plr_height = 7.24;
+const double plr_height = 7.24; // Foot to rod
+const double plr_levitate = 0.5; // foot to floor
 const double hat_height = 4.2;
 
 const double goal_width = 20.45;

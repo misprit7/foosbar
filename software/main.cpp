@@ -436,7 +436,8 @@ int main(int argc, char** argv){
         const int buf_cap = vision_fps;
         // Higher = more noise, less latency
         const double gamma_vel = 0.2;
-        const double gamma_pos = 0.05;
+        /* const double gamma_pos = 0.05; */
+        const double gamma_pos = 0.1;
         for(ever){
             CRTPacket::EPacketType packetType;
             if(rtProtocol.Receive(packetType, true, 0) == CNetwork::ResponseType::success){
@@ -636,7 +637,7 @@ int main(int argc, char** argv){
     cout << endl;
     cout << fixed << setprecision(2);
     
-    state_t state = state_controlled;
+    state_t state = state_controlled_five_bar;
     /* state_t state = state_test; */
     /* state_t state = state_defense; */
     /* state_t state = state_snake; */
@@ -646,7 +647,8 @@ int main(int argc, char** argv){
     /*     .accel = 500, */
     /* }; */
 
-    control_task_t control_task = control_task_init;
+    c3b_t c3b_task = c3b_init;
+    c5b_t c5b_task = c5b_init;
     double control_task_timer = mgr.TimeStampMsec();
     // 1 = right, -1 = left, 0 = not shooting
     int control_task_shoot_dir = 0;
@@ -756,7 +758,7 @@ int main(int argc, char** argv){
             int front;
             pair<side_t, rod_t> closest = closest_rod(ball_pos_fast[1]);
             if(closest.first == bot){
-                /* state = state_uncontrolled; */
+                state = state_uncontrolled;
                 break;
             }
             if(closest.second == three_bar) front = two_bar;
@@ -910,18 +912,22 @@ int main(int argc, char** argv){
                 t_last_move = time_ms;
             }
             if(time_ms - t_last_move > 1000){
-                state = state_controlled;
+                if(rod == three_bar){
+                    state = state_controlled_three_bar;
+                } else if(rod == five_bar){
+                    state = state_controlled_five_bar;
+                }
             }
 
             break;
         }
-        case state_controlled:
-        {
-            if(no_motors) break;
-            // Convenience macros for waiting for rot/lin motions to finish respectively
+        // Convenience macros for waiting for rot/lin motions to finish respectively
 #define wait_rot if(abs(cur_pos[rot][rod] - mtr_last_cmd[rot][rod].pos) < 1.0 && time_ms - control_task_timer > 100)
 #define wait_lin if(abs(cur_pos[lin][rod] - mtr_last_cmd[lin][rod].pos) < 0.1 && time_ms - control_task_timer > 100)
 #define wait_time(T) if(time_ms - control_task_timer >= (T))
+        case state_controlled_three_bar:
+        {
+            if(no_motors) break;
 
 
             pair<side_t, rod_t> closest = closest_rod(ball_pos_fast[1]);
@@ -971,8 +977,8 @@ int main(int argc, char** argv){
 
             // Second state machine specifically for micro control tasks
             // Could combine this but these are much lower level tasks than high level states
-            switch(control_task){
-            case control_task_init:
+            switch(c3b_task){
+            case c3b_init:
                 mtr_cmds[rot][rod] = {
                     .pos = cw ? -360.0 + 90 : 90,
                     .vel = 500,
@@ -984,11 +990,11 @@ int main(int argc, char** argv){
                     .vel = NAN,
                     .accel = NAN,
                 };
-                control_task = control_task_raise;
+                c3b_task = c3b_raise;
                 control_task_timer = time_ms;
                 cout << "raise" << endl;
                 break;
-            case control_task_raise:
+            case c3b_raise:
                 wait_rot{
                     double offset = ball_in_pos ? 0.35 : 0.5;
                     double target_cm = ball_pos_slow[0] - dir*(ball_rad + foot_width/2 + offset);
@@ -997,10 +1003,10 @@ int main(int argc, char** argv){
                         /* double sign = ball_pos[0] > goal_cm ? 1 : -1; */
                         /* target_cm = ball_pos[0] + sign * dir * ball_rad / 2; */
                         target_cm = ball_pos_slow[0];
-                        control_task = control_task_adjust_move;
+                        c3b_task = c3b_adjust_move;
                         control_task_timer = time_ms;
                     } else {
-                        control_task = control_task_move_lateral;
+                        c3b_task = c3b_move_lateral;
                         control_task_timer = time_ms;
                     }
 
@@ -1014,20 +1020,20 @@ int main(int argc, char** argv){
                     cout << "move_lateral" << endl;
                 }
                 break;
-            case control_task_move_lateral:
+            case c3b_move_lateral:
                 wait_lin{
                     mtr_cmds[rot][rod] = {
                         .pos = ball_deg + 6,
                         .vel = 50,
                         .accel = 1000,
                     };
-                    control_task = control_task_lower;
+                    c3b_task = c3b_lower;
                     control_task_timer = time_ms;
                     cout << "lower" << endl;
                     cout << ball_deg << endl;
                 }
                 break;
-            case control_task_adjust_move:
+            case c3b_adjust_move:
                 wait_lin{
                     double pos = ball_pos_slow[1] < rod_coord[rod] ? 55 : 360 - 55;
                     mtr_cmds[rot][rod] = {
@@ -1035,13 +1041,13 @@ int main(int argc, char** argv){
                         .vel = 150,
                         .accel = 1000,
                     };
-                    control_task = control_task_adjust_down;
+                    c3b_task = c3b_adjust_down;
                     control_task_timer = time_ms;
                     cout << "adjust down" << endl;
                 }
 
                 break;
-            case control_task_adjust_down:
+            case c3b_adjust_down:
                 wait_rot{
                     double last_deg = mtr_last_cmd[rot][rod].pos;
                     // Check for first, fast section of move and finish slowly
@@ -1060,11 +1066,11 @@ int main(int argc, char** argv){
                         .accel = 5000,
                     };
                     cout << "raise" << endl;
-                    control_task = control_task_raise;
+                    c3b_task = c3b_raise;
                     control_task_timer = time_ms;
                 }
                 break;
-            case control_task_lower:
+            case c3b_lower:
                 wait_rot{
                     if(ball_in_pos){
                         double target_cm = ball_pos_slow[0] - dir*(ball_rad + foot_width/2);
@@ -1075,11 +1081,11 @@ int main(int argc, char** argv){
                                 .accel = 5000,
                             };
                             cout << "Failed lower, raising..." << endl;
-                            control_task = control_task_raise;
+                            c3b_task = c3b_raise;
                             control_task_timer = time_ms;
                         } else {
                             cout << "shoot" << endl;
-                            control_task = control_task_shoot_wait;
+                            c3b_task = c3b_shoot_wait;
                             control_task_timer = time_ms;
                             control_task_shoot_dir = dir;
                             // Random 0-2s, plus 500ms minimum delay
@@ -1094,12 +1100,12 @@ int main(int argc, char** argv){
                             .vel = 2.5,
                             .accel = 3,
                         };
-                        control_task = control_task_push;
+                        c3b_task = c3b_push;
                         control_task_timer = time_ms;
                     }
                 }
                 break;
-            case control_task_push:
+            case c3b_push:
             {
                 // Don't rapid fire commands
                 if(time_ms - mtr_t_last_cmd[lin][rod] > 50){
@@ -1119,12 +1125,12 @@ int main(int argc, char** argv){
                         .vel = 500,
                         .accel = 5000,
                     };
-                    control_task = control_task_raise;
+                    c3b_task = c3b_raise;
                     control_task_timer = time_ms;
                 }
                 break;
             }
-            case control_task_shoot_wait:
+            case c3b_shoot_wait:
             {
                 bool in_vision = true;
                 for(int r = two_bar; r < num_rod_t; ++r){
@@ -1148,7 +1154,7 @@ int main(int argc, char** argv){
                     cout << "shoot straight" << endl;
                     cout << "Time: " << time_ms << endl;
                     cout << dt_ms << ", " << r_straight << endl;
-                    control_task = control_task_shoot_straight;
+                    c3b_task = c3b_shoot_straight;
                     control_task_timer = time_ms;
                     disable_motor_updates = true;
                 } else if(r_middle > 1 - dt_ms / et_middle && in_vision && !is_blocked(rod, play_height/2, rod_pos[lin], 1)){
@@ -1158,26 +1164,31 @@ int main(int argc, char** argv){
                         .accel = 2000,
                     };
                     cout << "shoot middle" << endl;
-                    control_task = control_task_shoot_middle;
+                    c3b_task = c3b_shoot_middle;
                     control_task_timer = time_ms;
                     disable_motor_updates = true;
                 }
-                /* wait_time(5000){ */
-                wait_time(0){
+                wait_time(5000){
+                /* wait_time(0){ */
                     double target_cm = control_task_shoot_dir == -1 ? setup_offset : play_height - setup_offset;
+                    /* mtr_cmds[lin][rod] = { */
+                    /*     .pos = target_cm - plr_offset_cm, */
+                    /*     .vel = 300, */
+                    /*     .accel = 3000, */
+                    /* }; */
                     mtr_cmds[lin][rod] = {
                         .pos = target_cm - plr_offset_cm,
-                        .vel = 300,
+                        .vel = 100,
                         .accel = 3000,
                     };
                     cout << "shoot end" << endl;
-                    control_task = control_task_shoot_end;
+                    c3b_task = c3b_shoot_end_slow;
                     control_task_timer = time_ms;
                     disable_motor_updates = true;
                 }
                 break;
             }
-            case control_task_shoot_straight:
+            case c3b_shoot_straight:
                 wait_time(20){
                     mtr_cmds[lin][rod] = {
                         .pos = ball_pos_fast[0] - plr_offset_cm,
@@ -1185,14 +1196,14 @@ int main(int argc, char** argv){
                         .accel = 3000,
                     };
                     control_task_timer = time_ms;
-                    control_task = control_task_shoot_straight_2;
+                    c3b_task = c3b_shoot_straight_2;
                 }
                 break;
-            case control_task_shoot_straight_2:
+            case c3b_shoot_straight_2:
                 wait_time(25){
                     // Abort!
                     if(is_blocked(rod, ball_pos_fast[0], rod_pos[lin], 0)){
-                        control_task = control_task_raise;
+                        c3b_task = c3b_raise;
                         cout << "straight abort" << endl;
                     } else {
                         mtr_cmds[rot][rod] = {
@@ -1202,12 +1213,12 @@ int main(int argc, char** argv){
                         };
                         control_task_timer = time_ms;
                         cout << "idle" << endl;
-                        control_task = control_task_idle;
+                        c3b_task = c3b_idle;
                     }
                     disable_motor_updates = false;
                 }
                 break;
-            case control_task_shoot_middle:
+            case c3b_shoot_middle:
                 wait_time(30){
                     mtr_cmds[rot][rod] = {
                         .pos = 55,
@@ -1220,10 +1231,10 @@ int main(int argc, char** argv){
                         .accel = 3000,
                     };
                     control_task_timer = time_ms;
-                    control_task = control_task_shoot_middle_2;
+                    c3b_task = c3b_shoot_middle_2;
                 }
                 break;
-            case control_task_shoot_middle_2:
+            case c3b_shoot_middle_2:
                 wait_time(50){
                     mtr_cmds[rot][rod] = {
                         .pos = -90,
@@ -1231,11 +1242,11 @@ int main(int argc, char** argv){
                         .accel = 200000,
                     };
                     control_task_timer = time_ms;
-                    control_task = control_task_idle;
+                    c3b_task = c3b_idle;
                     disable_motor_updates = false;
                 }
                 break;
-            case control_task_shoot_end:
+            case c3b_shoot_end:
                 wait_time(45){
                     mtr_cmds[rot][rod] = {
                         .pos = 90,
@@ -1243,10 +1254,10 @@ int main(int argc, char** argv){
                         .accel = 220000,
                     };
                     control_task_timer = time_ms;
-                    control_task = control_task_shoot_end_2;
+                    c3b_task = c3b_shoot_end_2;
                 }
                 break;
-            case control_task_shoot_end_2:
+            case c3b_shoot_end_2:
                 wait_time(10){
                     double target_cm = control_task_shoot_dir == -1 ? setup_offset-3 : play_height - setup_offset;
                     mtr_cmds[lin][rod] = {
@@ -1255,10 +1266,10 @@ int main(int argc, char** argv){
                         .accel = 4000,
                     };
                     control_task_timer = time_ms;
-                    control_task = control_task_shoot_end_3;
+                    c3b_task = c3b_shoot_end_3;
                 }
                 break;
-            case control_task_shoot_end_3:
+            case c3b_shoot_end_3:
                 wait_time(50){
                     mtr_cmds[rot][rod] = {
                         .pos = -90,
@@ -1266,12 +1277,132 @@ int main(int argc, char** argv){
                         .accel = 220000,
                     };
                     control_task_timer = time_ms;
-                    control_task = control_task_idle;
+                    c3b_task = c3b_idle;
                     disable_motor_updates = false;
                 }
                 break;
-            case control_task_idle:
+            case c3b_shoot_end_slow:
+                wait_time(45){
+                    mtr_cmds[rot][rod] = {
+                        .pos = 90,
+                        .vel = 22000,
+                        .accel = 220000,
+                    };
+                    control_task_timer = time_ms;
+                    c3b_task = c3b_shoot_end_slow_2;
+                }
+                break;
+            case c3b_shoot_end_slow_2:
+                wait_time(10){
+                    double target_cm = control_task_shoot_dir == -1 ? setup_offset-2 : play_height - setup_offset;
+                    mtr_cmds[lin][rod] = {
+                        .pos = target_cm - plr_offset_cm,
+                        .vel = 300,
+                        .accel = 3000,
+                    };
+                    control_task_timer = time_ms;
+                    c3b_task = c3b_shoot_end_slow_3;
+                }
+                break;
+            case c3b_shoot_end_slow_3:
+                wait_time(115){
+                    mtr_cmds[rot][rod] = {
+                        .pos = -90,
+                        .vel = 22000,
+                        .accel = 220000,
+                    };
+                    control_task_timer = time_ms;
+                    c3b_task = c3b_idle;
+                    disable_motor_updates = false;
+                }
+                break;
+            case c3b_idle:
             default:
+                break;
+            }
+            break;
+        }
+        case state_controlled_five_bar:
+        {
+            pair<side_t, rod_t> closest = closest_rod(ball_pos_fast[1]);
+            side_t side = closest.first;
+            rod_t rod = closest.second;
+            if(rod != five_bar || side != bot){
+                /* state = state_unknown; */
+            }
+
+            int plr = closest_plr(rod, ball_pos_slow[0], cur_pos[lin][rod]);
+            double plr_offset_cm = plr_offset(plr, rod);
+
+            static int tic_tac_dir = 1;
+            int ball_dir = ball_vel[0] > 0 ? 1 : -1;
+
+            const double hit_thresh = 4;
+
+            const double tic_tac_vel = 20;
+            const double tic_tac_accel = 200;
+            
+            const double left_cm = 2;
+            const double right_cm = 12;
+
+
+            double hit_cm = ball_dir = 1 ? right_cm - hit_thresh/2 : left_cm + hit_thresh/2;
+            double dt = abs(ball_pos_fast[0] - hit_cm) - ball_vel[0];
+
+            /* double ball_deg = (rod_coord[rod] - ball_pos_fast[1]) / plr_height / deg_to_rad - 3; */
+            double ball_deg = asin((rod_coord[rod] - ball_pos_slow[1]) / (plr_height+plr_levitate-ball_rad/2)) / deg_to_rad-3;
+
+            switch(c5b_task){
+            case c5b_init:
+                mtr_cmds[lin][rod] = {
+                    .pos = right_cm,
+                    .vel = tic_tac_vel,
+                    .accel = tic_tac_accel,
+                };
+                mtr_cmds[rot][rod] = {
+                    .pos = ball_deg,
+                    .vel = 4'000,
+                    .accel = 40'000,
+                };
+                tic_tac_dir = 1;
+                c5b_task = c5b_tic_tac;
+                cout << "five-bar controlled" << endl;
+                break;
+            case c5b_tic_tac:
+            {
+                /* double tol = 2; */
+
+                if(time_ms - mtr_t_last_cmd[lin][rod] > 20){
+                    mtr_cmds[rot][rod] = {
+                        /* .pos = ball_deg + (ball_deg > 6 ? 3 : 0) + (ball_deg < -6 ? -3 : 0), */
+                        /* .pos = ball_deg + (ball_vel[1] > 20 ? -6 : 0) + (ball_vel[1] < -20 ? 6 : 0), */
+                        /* .pos = ball_deg * 1.2, */
+                        .pos = ball_deg + pow(abs(ball_deg), 0.5)*(ball_deg>0?1:-1),
+                        .vel = 2'000,
+                        .accel = 20'000,
+                    };
+                }
+                if(tic_tac_dir == 1 && ball_dir == 1 && ball_pos_fast[0] > right_cm + plr_offset(1, five_bar) - (ball_rad+foot_width/2) - hit_thresh){
+                    tic_tac_dir = -1;
+                    mtr_cmds[lin][rod] = {
+                        .pos = left_cm,
+                        .vel = tic_tac_vel,
+                        .accel = tic_tac_accel,
+                    };
+                    /* cout << "left" << endl; */
+                } else if(tic_tac_dir == -1 && ball_dir == -1 && ball_pos_fast[0] < left_cm + plr_offset(0, five_bar) + (ball_rad+foot_width/2) + hit_thresh){
+                    tic_tac_dir = 1;
+                    mtr_cmds[lin][rod] = {
+                        .pos = right_cm,
+                        .vel = tic_tac_vel,
+                        .accel = tic_tac_accel,
+                    };
+                    /* cout << "right" << endl; */
+                }
+                
+                break;
+            }
+            case c5b_idle:
                 break;
             }
             break;
@@ -1325,6 +1456,7 @@ int main(int argc, char** argv){
             break;
         }
         case state_test:
+            // For misc testing
             mtr_cmds[lin][three_bar] = {
                 /* .pos = ball_pos[0] - plr_offset(1, three_bar), */
                 .pos = play_height/2 - plr_offset(1, three_bar),

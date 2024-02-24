@@ -15,31 +15,43 @@ typedef enum state_t {
     state_defense,
     state_shot_defense,
     state_uncontrolled,
-    state_controlled,
+    state_controlled_three_bar,
+    state_controlled_five_bar,
     state_snake,
     state_test,
     state_unknown,
     num_state_t
 } state_t;
 
-typedef enum control_task_t {
-    control_task_init,
-    control_task_raise,
-    control_task_move_lateral,
-    control_task_lower,
-    control_task_push,
-    control_task_shoot_wait,
-    control_task_shoot_straight,
-    control_task_shoot_straight_2,
-    control_task_shoot_middle,
-    control_task_shoot_middle_2,
-    control_task_shoot_end,
-    control_task_shoot_end_2,
-    control_task_shoot_end_3,
-    control_task_adjust_move,
-    control_task_adjust_down,
-    control_task_idle,
-} control_task_t;
+// Controlled 3 bar
+typedef enum c3b_t {
+    c3b_init,
+    c3b_raise,
+    c3b_move_lateral,
+    c3b_lower,
+    c3b_push,
+    c3b_shoot_wait,
+    c3b_shoot_straight,
+    c3b_shoot_straight_2,
+    c3b_shoot_middle,
+    c3b_shoot_middle_2,
+    c3b_shoot_end,
+    c3b_shoot_end_2,
+    c3b_shoot_end_3,
+    c3b_shoot_end_slow,
+    c3b_shoot_end_slow_2,
+    c3b_shoot_end_slow_3,
+    c3b_adjust_move,
+    c3b_adjust_down,
+    c3b_idle,
+} c3b_t;
+
+// Controlled 5 bar
+typedef enum c5b_t {
+    c5b_init,
+    c5b_tic_tac,
+    c5b_idle,
+} c5b_t;
 
 struct motor_cmd {
     // NAN for unchanged
