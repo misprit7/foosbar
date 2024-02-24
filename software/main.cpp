@@ -435,7 +435,8 @@ int main(int argc, char** argv){
         deque<pair<double, vector<double>>> pos_buffer;
         const int buf_cap = vision_fps;
         // Higher = more noise, less latency
-        const double gamma_vel = 0.2;
+        /* const double gamma_vel = 0.2; */
+        const double gamma_vel = 0.05;
         /* const double gamma_pos = 0.05; */
         const double gamma_pos = 0.1;
         for(ever){
@@ -1346,11 +1347,13 @@ int main(int argc, char** argv){
             const double right_cm = 12;
 
 
-            double hit_cm = ball_dir = 1 ? right_cm - hit_thresh/2 : left_cm + hit_thresh/2;
-            double dt = abs(ball_pos_fast[0] - hit_cm) - ball_vel[0];
+            double hit_cm = ball_dir == 1 ? right_cm - hit_thresh/2 : left_cm + hit_thresh/2;
+            double dt = abs(ball_pos_slow[0] - hit_cm) / ball_vel[0];
+            /* double ball_cm = ball_pos_slow[1] + ball_vel[1]*dt; */
+            double ball_cm = ball_pos_slow[1];
 
             /* double ball_deg = (rod_coord[rod] - ball_pos_fast[1]) / plr_height / deg_to_rad - 3; */
-            double ball_deg = asin((rod_coord[rod] - ball_pos_slow[1]) / (plr_height+plr_levitate-ball_rad/2)) / deg_to_rad-3;
+            double ball_deg = atan((rod_coord[rod] - ball_cm) / (plr_height+plr_levitate-ball_rad/2)) / deg_to_rad-3;
 
             switch(c5b_task){
             case c5b_init:
@@ -1366,23 +1369,23 @@ int main(int argc, char** argv){
                 };
                 tic_tac_dir = 1;
                 c5b_task = c5b_tic_tac;
-                cout << "five-bar controlled" << endl;
+                /* c5b_task = c5b_threaten; */
                 break;
             case c5b_tic_tac:
             {
                 /* double tol = 2; */
 
-                if(time_ms - mtr_t_last_cmd[lin][rod] > 20){
+                if(time_ms - mtr_t_last_cmd[rot][rod] > 20){
                     mtr_cmds[rot][rod] = {
                         /* .pos = ball_deg + (ball_deg > 6 ? 3 : 0) + (ball_deg < -6 ? -3 : 0), */
-                        /* .pos = ball_deg + (ball_vel[1] > 20 ? -6 : 0) + (ball_vel[1] < -20 ? 6 : 0), */
-                        /* .pos = ball_deg * 1.2, */
-                        .pos = ball_deg + pow(abs(ball_deg), 0.5)*(ball_deg>0?1:-1),
+                        /* .pos = ball_deg*1.2 - ball_vel[1] * 1, */
+                        .pos = ball_deg * 1.3,
+                        /* .pos = ball_deg + pow(abs(ball_deg), 0.5)*(ball_deg>0?1:-1), */
                         .vel = 2'000,
                         .accel = 20'000,
                     };
                 }
-                if(tic_tac_dir == 1 && ball_dir == 1 && ball_pos_fast[0] > right_cm + plr_offset(1, five_bar) - (ball_rad+foot_width/2) - hit_thresh){
+                if(tic_tac_dir == 1 && ball_dir == 1 && ball_pos_fast[0] > right_cm + plr_offset(1, rod) - (ball_rad+foot_width/2) - hit_thresh){
                     tic_tac_dir = -1;
                     mtr_cmds[lin][rod] = {
                         .pos = left_cm,
@@ -1390,7 +1393,7 @@ int main(int argc, char** argv){
                         .accel = tic_tac_accel,
                     };
                     /* cout << "left" << endl; */
-                } else if(tic_tac_dir == -1 && ball_dir == -1 && ball_pos_fast[0] < left_cm + plr_offset(0, five_bar) + (ball_rad+foot_width/2) + hit_thresh){
+                } else if(tic_tac_dir == -1 && ball_dir == -1 && ball_pos_fast[0] < left_cm + plr_offset(0, rod) + (ball_rad+foot_width/2) + hit_thresh){
                     tic_tac_dir = 1;
                     mtr_cmds[lin][rod] = {
                         .pos = right_cm,
@@ -1401,6 +1404,10 @@ int main(int argc, char** argv){
                 }
                 
                 break;
+            }
+            case c5b_threaten:
+            {
+
             }
             case c5b_idle:
                 break;
@@ -1470,7 +1477,7 @@ int main(int argc, char** argv){
         }
 
         /* status << cur_pos[lin][three_bar] << ", " << cur_pos[lin][goalie] << endl; */
-        /* print_status(status.str(), true); */
+        print_status(status.str(), true);
         /* cout << ball_pos_lcl[0] << ", " << ball_pos_lcl[1] << "; v: " << ball_vel_lcl[0] << ", " << ball_vel_lcl[1] << endl; */
         /* cout << time_ms - start_t << endl; */
 

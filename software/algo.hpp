@@ -50,6 +50,7 @@ typedef enum c3b_t {
 typedef enum c5b_t {
     c5b_init,
     c5b_tic_tac,
+    c5b_threaten,
     c5b_idle,
 } c5b_t;
 
