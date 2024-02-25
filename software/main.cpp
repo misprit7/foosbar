@@ -638,7 +638,7 @@ int main(int argc, char** argv){
     cout << endl;
     cout << fixed << setprecision(2);
     
-    state_t state = state_controlled_five_bar;
+    state_t state = state_controlled_move;
     /* state_t state = state_test; */
     /* state_t state = state_defense; */
     /* state_t state = state_snake; */
@@ -650,10 +650,19 @@ int main(int argc, char** argv){
 
     c3b_t c3b_task = c3b_init;
     c5b_t c5b_task = c5b_init;
+    cmove_t cmove_task = cmove_init;
     double control_task_timer = mgr.TimeStampMsec();
+
+    // Shot variables
     // 1 = right, -1 = left, 0 = not shooting
     int control_task_shoot_dir = 0;
 
+    // Pass variables
+    
+
+    // Move variables
+    vector<double> cmove_target_cm = {play_height/2,0};
+    vector<double> cmove_target_tol = {1,1};
 
     /* for(int i = 0; i < 2; ++i){ */
     /*     double start_t = mgr.TimeStampMsec(); */
@@ -926,6 +935,9 @@ int main(int argc, char** argv){
 #define wait_rot if(abs(cur_pos[rot][rod] - mtr_last_cmd[rot][rod].pos) < 1.0 && time_ms - control_task_timer > 100)
 #define wait_lin if(abs(cur_pos[lin][rod] - mtr_last_cmd[lin][rod].pos) < 0.1 && time_ms - control_task_timer > 100)
 #define wait_time(T) if(time_ms - control_task_timer >= (T))
+        /******************************************************************************
+         * Three Bar Shot
+         ******************************************************************************/
         case state_controlled_three_bar:
         {
             if(no_motors) break;
@@ -1323,6 +1335,9 @@ int main(int argc, char** argv){
             }
             break;
         }
+        /******************************************************************************
+         * Five bar passing
+         ******************************************************************************/
         case state_controlled_five_bar:
         {
             pair<side_t, rod_t> closest = closest_rod(ball_pos_fast[1]);
@@ -1356,13 +1371,15 @@ int main(int argc, char** argv){
             double ball_deg = atan((rod_coord[rod] - ball_cm) / (plr_height+plr_levitate-ball_rad/2)) / deg_to_rad-3;
 
             static double pass_cm;
-            static double threaten_dir = 1;
-            static double threaten_shake_dir = 1;
+            static int threaten_dir = ball_pos_fast[0] <= play_height/2;
+            static int threaten_shake_dir = threaten_dir;
 
             switch(c5b_task){
             case c5b_init:
+            {
+                double start_cm = 8;
                 mtr_cmds[lin][rod] = {
-                    .pos = 8,
+                    .pos = threaten_dir == 1 ? start_cm : lin_range_cm[rod] - start_cm,
                     .vel = 30,
                     .accel = 300,
                 };
@@ -1377,6 +1394,7 @@ int main(int argc, char** argv){
                 control_task_timer = time_ms;
                 threaten_shake_dir = 1;
                 break;
+            }
             case c5b_tic_tac:
             {
                 /* double tol = 2; */
@@ -1433,14 +1451,14 @@ int main(int argc, char** argv){
                     threaten_shake_dir = cur_pos[lin][rod] > (left_cm + right_cm)/2 ? -1 : 1;
                     /* cout << threaten_dir << endl; */
                     mtr_cmds[lin][rod] = {
-                        .pos = threaten_shake_dir == 1 ? 8.0 : 2,
+                        .pos = threaten_shake_dir == 1 ? lin_range_cm[rod]-4 : 4,
                         .vel = 10,
                         .accel = 300,
                     };
                 }
                 wait_time(400){
 
-                    double ball_cm = ball_pos_fast[0] + 1.75;
+                    double ball_cm = ball_pos_fast[0] + 1.75*threaten_dir;
                     int plr_five_bar = closest_plr(five_bar, ball_cm, cur_pos[lin][three_bar]);
                     int plr_three_bar = closest_plr(three_bar, ball_cm, cur_pos[lin][three_bar]);
                     if(!is_blocked(rod, ball_pos_fast[0], rod_pos, 0.2) && abs(cur_pos[lin][rod] + plr_offset_cm - ball_pos_fast[0]) < 0.5){
@@ -1463,7 +1481,7 @@ int main(int argc, char** argv){
                             .accel = 5000,
                         };
                         mtr_cmds[lin][three_bar] = {
-                            .pos = ball_cm + 1 - plr_offset(plr_three_bar, three_bar),
+                            .pos = ball_cm + 1*threaten_dir - plr_offset(plr_three_bar, three_bar),
                             .vel = 150,
                             .accel = 2000,
                         };
@@ -1486,7 +1504,7 @@ int main(int argc, char** argv){
                 break;
             }
             case c5b_threaten_3:
-                if(ball_pos_fast[0] >= pass_cm-1){
+                if(threaten_dir == 1 ? (ball_pos_fast[0] >= pass_cm-1) : (ball_pos_fast[0] <= pass_cm + 1)){
                     if(is_blocked(five_bar, pass_cm, rod_pos, 1, three_bar)){
                         cout << "Abort pass!" << endl;
                         c5b_task = c5b_threaten_2;
@@ -1543,6 +1561,93 @@ int main(int argc, char** argv){
             }
             break;
         }
+        /******************************************************************************
+         * General move command
+         ******************************************************************************/
+        case state_controlled_move:
+        {
+            pair<side_t, rod_t> closest = closest_rod(ball_pos_fast[1]);
+            side_t side = closest.first;
+            rod_t rod = closest.second;
+            if(side != bot){
+                state = state_unknown;
+                cout << "Went to human" << endl;
+            }
+
+            int cls_plr = closest_plr(rod, ball_pos_slow[0], cur_pos[lin][rod]);
+            double cls_plr_offset_cm = plr_offset(cls_plr, rod);
+
+            double ball_deg = atan((rod_coord[rod] - ball_pos_slow[1]) / (plr_height+plr_levitate-ball_rad/2)) / deg_to_rad-3;
+
+            // Side of ball to go to
+            static int target_side = -1;
+            static cmove_t next_task = cmove_tap_1;
+            static int plr = 0;
+
+            switch(cmove_task){
+            case cmove_init:
+                target_side = ball_pos_slow[0] <= cmove_target_cm[0] ? 1 : -1;
+                cmove_task = cmove_side_1;
+                break;
+            case cmove_side_1:
+            {
+                int rot_dir = abs(cur_pos[lin][rod] + cls_plr_offset_cm - ball_pos_slow[0]) < ball_rad + plr_width/2
+                    && cur_pos[rot][rod] * deg_to_rad * plr_height >= rod_coord[rod] - ball_pos_slow[1] ? 1 : -1;
+                
+                mtr_cmds[rot][rod] = {
+                    .pos = rot_dir == 1 ? 60.0 : -60,
+                    .vel = 500,
+                    .accel = 5000,
+                };
+                cmove_task = cmove_side_2;
+                break;
+            }
+            case cmove_side_2:
+                wait_rot{
+                    double target_cm = ball_pos_slow[0]+(ball_rad+foot_width/2+0.2)*target_side;
+                    plr = closest_plr(rod, target_cm, lin_range_cm[rod]/2);
+                    mtr_cmds[lin][rod] = {
+                        .pos = target_cm - plr_offset(plr, rod),
+                        .vel = 50,
+                        .accel = 500,
+                    };
+                    cmove_task = cmove_side_3;
+                }
+                break;
+            case cmove_side_3:
+                wait_lin{
+                    mtr_cmds[rot][rod] = {
+                        .pos = ball_deg,
+                        .vel = 100,
+                        .accel = 1000,
+                    };
+                    cmove_task = next_task;
+                }
+                break;
+            case cmove_tap_1:
+                wait_rot{
+                    mtr_cmds[lin][rod] = {
+                        .pos = cur_pos[lin][rod] - 3*target_side,
+                        .vel = 30,
+                        .accel = 300,
+                    };
+                    cmove_task = cmove_tap_2;
+                }
+                break;
+            case cmove_tap_2:
+            {
+                /* if(ball_pos[0] >= */ 
+                break;
+            }
+            case cmove_idle:
+            default:
+                break;
+            }
+            break;
+        }
+        /******************************************************************************
+         * Snake Testing code
+         ******************************************************************************/
         case state_snake: {
             static double t_up = time_ms+2000;
             static double t_shoot = time_ms + 10000;

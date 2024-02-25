@@ -17,6 +17,7 @@ typedef enum state_t {
     state_uncontrolled,
     state_controlled_three_bar,
     state_controlled_five_bar,
+    state_controlled_move,
     state_snake,
     state_test,
     state_unknown,
@@ -56,6 +57,23 @@ typedef enum c5b_t {
     c5b_threaten_4,
     c5b_idle,
 } c5b_t;
+
+typedef enum cmove_t {
+    cmove_init,
+    cmove_side_1, // Go to side of ball
+    cmove_side_2,
+    cmove_side_3,
+    cmove_tap_1, // Tap ball sideways and catch it
+    cmove_tap_2,
+    cmove_tap_3,
+    cmove_adjust_1, // Adjust ball by sliding it
+    cmove_adjust_2,
+    cmove_unstuck_1, // Get unstuck by gripping the ball
+    cmove_unstuck_2,
+    cmove_bounce_1, // Bounce ball away from edge
+    cmove_bounce_2,
+    cmove_idle,
+} cmove_t;
 
 struct motor_cmd {
     // NAN for unchanged
