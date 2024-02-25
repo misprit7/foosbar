@@ -89,16 +89,29 @@ pair<side_t, rod_t> closest_rod(double ball_cm){
     return {bot, goalie};
 }
 
-bool is_blocked(int rod, double ball_cm, double rod_pos[num_axis_t], double tol){
+bool is_blocked(int start_rod, double ball_cm, double rod_pos[num_axis_t][num_rod_t], double tol, int end_rod){
     if(ball_cm < play_height/2 - goal_width/2 || ball_cm > play_height/2 + goal_width/2)
         return true;
     int r = goalie;
-    while(-rod_coord[r] > rod_coord[rod]){
-        int plr = closest_plr_ignore_walls(r, ball_cm, rod_pos[r]);
-        if(abs(ball_cm - (plr_offset(plr, r) + rod_pos[r])) < ball_rad + foot_width/2 + tol) return true;
-        /* cout << r << ", " << plr_offset(plr, r) << ", " << rod_pos[r] << endl; */
+    while(-rod_coord[r] > rod_coord[start_rod]){
+        if(end_rod >= 0 && -rod_coord[r] > rod_coord[end_rod]){
+            --r;
+            continue;
+        }
+        int plr = closest_plr_ignore_walls(r, ball_cm, rod_pos[lin][r]);
+        if(abs(ball_cm - (plr_offset(plr, r) + rod_pos[lin][r])) < ball_rad + foot_width/2 + tol) return true;
+        /* cout << r << ", " << plr_offset(plr, r) << ", " << rod_pos[lin][r] << endl; */
         --r;
     }
     return false;
+}
+
+double kin_ball_dist(vector<double> ball_pos, vector<double> ball_vel, double y){
+    double dt = (y - ball_pos[1])/ball_vel[1];
+    double x = ball_pos[0] + ball_vel[0]*dt;
+    int num_bounces = floor(x/play_height);
+    bool flipped = num_bounces%2 == 0;
+    x = fmod(x, play_height);
+    return flipped ? play_height - x : x;
 }
 

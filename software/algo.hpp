@@ -50,7 +50,10 @@ typedef enum c3b_t {
 typedef enum c5b_t {
     c5b_init,
     c5b_tic_tac,
-    c5b_threaten,
+    c5b_threaten_1,
+    c5b_threaten_2,
+    c5b_threaten_3,
+    c5b_threaten_4,
     c5b_idle,
 } c5b_t;
 
@@ -94,10 +97,18 @@ pair<side_t, rod_t> closest_rod(double ball_cm);
 
 /**
  * Determines if ball shot from a position will be blocked
- * rod: rod ball is being shot from
+ * start_rod: rod ball is being shot from
+ * end_rod: rod ball is being shot from
  * ball_cm: ball x coordinate
  * rod_pos: positions of 0th plr on each human rod
  * tol: extra tolerance for error
+ * end_rod: rod passing to, -1 for shots
  */
-bool is_blocked(int rod, double ball_cm, double rod_pos[num_axis_t], double tol=0);
+bool is_blocked(int start_rod, double ball_cm, double rod_pos[num_axis_t][num_rod_t], double tol=0, int end_rod=-1);
+
+/**
+ * Calculates x position of ball when ball has reached location y
+ * Assumes that y is in the direction of ball_vel[1]
+ */
+double kin_ball_dist(vector<double> ball_pos, vector<double> ball_vel, double y);
 

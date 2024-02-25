@@ -106,7 +106,7 @@ const double rod_coord[num_rod_t] = {
 // Slightly more accurate to measure multiple then divide
 const double plr_gap[num_rod_t] = {
     (45.1 - 2*bumper_width - plr_width) / 2,
-    (52.6 - 2*bumper_width - plr_width) / 4,
+    (56.4 - 2*bumper_width - plr_width) / 4,
     (32.8 - 2*bumper_width - plr_width),
     (49.35 - 2*bumper_width - plr_width) / 2,
 };
