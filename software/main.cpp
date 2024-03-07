@@ -663,6 +663,7 @@ int main(int argc, char** argv){
     // Move variables
     vector<double> cmove_target_cm = {play_height/2,0};
     vector<double> cmove_target_tol = {1,1};
+    state_t cmove_next_state = state_unknown;
 
     /* for(int i = 0; i < 2; ++i){ */
     /*     double start_t = mgr.TimeStampMsec(); */
@@ -1587,13 +1588,31 @@ int main(int argc, char** argv){
             switch(cmove_task){
             case cmove_init:
             {
+                /* cmove_task = cmove_decide_1; */
+                cmove_task = cmove_give_up_1;
+                break;
+            }
+            case cmove_decide_1:
+                wait_time(300){
+                    cmove_task = cmove_decide_2;
+                }
+                break;
+            case cmove_decide_2:
+            {
+                // Decide next action based on current state
+                if(abs(ball_pos_slow[0] - cmove_target_cm[0]) < cmove_target_tol[0] && abs(ball_pos_slow[1] - cmove_target_cm[1]) < cmove_target_tol[1]){
+                    state = cmove_next_state;
+                    break;
+                }
+
                 target_side = ball_pos_slow[0] <= cmove_target_cm[0] ? 1 : -1;
-                double edge_dist = bumper_width + plr_width;
-                if(ball_pos_slow[0] <= edge_dist || ball_pos_slow[0] >= play_height-edge_dist){
+                double edge_dist = bumper_width + plr_width+1;
+                if(ball_pos_fast[0] <= edge_dist || ball_pos_fast[0] >= play_height-edge_dist){
                     next_task = cmove_bounce_1;
                     target_side = ball_pos_slow[0] < play_height/2 ? -1 : 1;
-                }
-                else
+                } else if(abs(ball_pos_fast[0]-cmove_target_cm[0]) > (rod == three_bar ? 8 : 15)){
+                    next_task = cmove_tap_1;
+                } else
                     next_task = cmove_adjust_1;
                 cmove_task = cmove_side_1;
                 break;
@@ -1609,13 +1628,11 @@ int main(int argc, char** argv){
                     .accel = 5000,
                 };
                 cmove_task = cmove_side_2;
-                cout << "1" << endl;
                 break;
             }
             case cmove_side_2:
                 wait_rot{
-                cout << "2" << endl;
-                    double target_cm = ball_pos_slow[0]-(ball_rad+foot_width/2+0.3)*target_side;
+                    double target_cm = ball_pos_slow[0]-(ball_rad+foot_width/2+0.5)*target_side;
                     plr = closest_plr(rod, target_cm, lin_range_cm[rod]/2);
                     mtr_cmds[lin][rod] = {
                         .pos = target_cm - plr_offset(plr, rod),
@@ -1693,8 +1710,8 @@ int main(int argc, char** argv){
             }
             case cmove_tap_4:
                 wait_lin{
-                    cmove_task = cmove_side_1;
-                    next_task = cmove_adjust_1;
+                    cmove_task = cmove_decide_1;
+                    control_task_timer = time_ms;
                 }
                 break;
             case cmove_adjust_1:
@@ -1702,10 +1719,12 @@ int main(int argc, char** argv){
                 int side = ball_pos_fast[0] >= cmove_target_cm[0] ? -1 : 1;
                 double target_cm = cmove_target_cm[0] - side*(ball_rad+foot_width/2);
                 mtr_cmds[lin][rod] = {
-                    .pos = target_cm - plr_offset(plr, rod),
+                    .pos = clamp(target_cm - plr_offset(plr, rod), 0.0, lin_range_cm[rod]),
                     .vel = 2,
                     .accel = 10,
                 };
+                cmove_task = cmove_adjust_2;
+                break;
             }
             case cmove_adjust_2:
             {
@@ -1716,22 +1735,40 @@ int main(int argc, char** argv){
                         .accel = 5000,
                     };
                 }
+                wait_lin{
+                    cmove_task = cmove_decide_1;
+                    control_task_timer = time_ms;
+                }
+                break;
             }
             case cmove_bounce_1:
             {
                 mtr_cmds[lin][rod] = {
-                    .pos = (target_side == -1 ? 0.2 : play_height - 0.2),
-                    .vel = 150,
+                    .pos = ball_pos_fast[0] + (target_side == -1 ? 1 : -1)*(ball_rad+foot_width/2+4) - plr_offset(plr, rod),
+                    .vel = 50,
                     .accel = 1500,
                 };
                 cmove_task = cmove_bounce_2;
                 break;
             }
             case cmove_bounce_2:
+            {
                 wait_lin{
                     mtr_cmds[lin][rod] = {
+                        .pos = (target_side == -1 ? 0.2 : play_height - 0.2),
+                        .vel = 100,
+                        .accel = 1500,
+                    };
+                    cmove_task = cmove_bounce_3;
+                    control_task_timer = time_ms;
+                }
+                break;
+            }
+            case cmove_bounce_3:
+                wait_time(100){
+                    mtr_cmds[lin][rod] = {
                         .pos = lin_range_cm[rod]/2,
-                        .vel = 150,
+                        .vel = 100,
                         .accel = 1500,
                     };
                     mtr_cmds[rot][rod] = {
@@ -1739,13 +1776,43 @@ int main(int argc, char** argv){
                         .vel = 5000,
                         .accel = 50000,
                     };
-                    cmove_task = cmove_bounce_3;
+                    cmove_task = cmove_bounce_4;
                     control_task_timer = time_ms;
                 }
                 break;
-            case cmove_bounce_3:
+            case cmove_bounce_4:
                 wait_time(1000){
                     cmove_task = cmove_idle;
+                }
+                break;
+            case cmove_give_up_1:
+                mtr_cmds[rot][rod] = {
+                    .pos = 90,
+                    .vel = 5000,
+                    .accel = 50000,
+                };
+                cmove_task = cmove_give_up_2;
+                break;
+            case cmove_give_up_2:
+                wait_rot{
+                    int plr = closest_plr(rod, ball_pos_fast[0], play_height/2);
+                    mtr_cmds[lin][rod] = {
+                        .pos = clamp(ball_pos_fast[0]-plr_offset(plr, rod)+2*(rand()%2-0.5), 0.0, lin_range_cm[rod]),
+                        .vel = 150,
+                        .accel = 1500,
+                    };
+                    cmove_task = cmove_give_up_3;
+                }
+                break;
+            case cmove_give_up_3:
+                wait_lin{
+                    mtr_cmds[rot][rod] = {
+                        .pos = -90,
+                        .vel = 5000,
+                        .accel = 50000,
+                    };
+                    cmove_task = cmove_idle;
+                    /* state = state_uncontrolled; */
                 }
                 break;
             case cmove_idle:

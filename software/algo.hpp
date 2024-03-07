@@ -60,6 +60,8 @@ typedef enum c5b_t {
 
 typedef enum cmove_t {
     cmove_init,
+    cmove_decide_1,
+    cmove_decide_2,
     cmove_side_1, // Go to side of ball
     cmove_side_2,
     cmove_side_3,
@@ -75,6 +77,10 @@ typedef enum cmove_t {
     cmove_bounce_1, // Bounce ball away from edge
     cmove_bounce_2,
     cmove_bounce_3,
+    cmove_bounce_4,
+    cmove_give_up_1,
+    cmove_give_up_2,
+    cmove_give_up_3,
     cmove_idle,
 } cmove_t;
 
