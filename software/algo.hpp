@@ -74,6 +74,9 @@ typedef enum cmove_t {
     cmove_adjust_2,
     cmove_unstuck_1, // Get unstuck by gripping the ball
     cmove_unstuck_2,
+    cmove_unstuck_3,
+    cmove_unstuck_4,
+    cmove_unstuck_5,
     cmove_bounce_1, // Bounce ball away from edge
     cmove_bounce_2,
     cmove_bounce_3,
@@ -138,4 +141,10 @@ bool is_blocked(int start_rod, double ball_cm, double rod_pos[num_axis_t][num_ro
  * Assumes that y is in the direction of ball_vel[1]
  */
 double kin_ball_dist(vector<double> ball_pos, vector<double> ball_vel, double y);
+
+/**
+ * Whether the given player can reach target_cm. Generally most useful for
+ * five bar, since for any other bar everywhere is reachable by a player
+ */
+bool can_plr_reach(int plr, int rod, double target_cm, double tol=0);
 

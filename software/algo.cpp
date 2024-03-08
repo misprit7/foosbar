@@ -115,3 +115,8 @@ double kin_ball_dist(vector<double> ball_pos, vector<double> ball_vel, double y)
     return flipped ? play_height - x : x;
 }
 
+bool can_plr_reach(int plr, int rod, double target_cm, double tol){
+    double offset = plr_offset(plr, rod);
+    return target_cm >= offset-tol && target_cm <= offset+lin_range_cm[rod]+tol;
+}
+
