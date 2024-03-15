@@ -84,6 +84,12 @@ typedef enum cmove_t {
     cmove_give_up_1,
     cmove_give_up_2,
     cmove_give_up_3,
+    cmove_pin_1,
+    cmove_pin_2,
+    cmove_pin_3,
+    cmove_pin_4,
+    cmove_pin_5,
+    cmove_pin_6,
     cmove_idle,
 } cmove_t;
 
