@@ -93,6 +93,12 @@ typedef enum cmove_t {
     cmove_idle,
 } cmove_t;
 
+typedef enum csnake_t {
+    csnake_init,
+    csnake_plan,
+    csnake_shoot,
+} csnake_t;
+
 struct motor_cmd {
     // NAN for unchanged
     double pos;
