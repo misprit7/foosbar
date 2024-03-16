@@ -86,7 +86,7 @@ void move_lin(int rod, double position_cm){
 }
 
 void move_rot(int rod, double position_deg){
-    int target_cnts = rot_deg_to_cnts[rod] * position_deg;
+    int target_cnts = rot_deg_to_cnts[rod] * (position_deg - cal_rot);
     nodes[rot][rod].get().Motion.MovePosnStart(target_cnts, true);
 }
 
@@ -611,8 +611,9 @@ int main(int argc, char** argv){
                         {
                             printf("Caught mnErr\n");
                             printf("Caught error: addr=%d, err=0x%08x\nmsg=%s\n", theErr.TheAddr, theErr.ErrorCode, theErr.ErrorMsg);
-                            cout << endl << endl << endl << endl << endl << endl << endl << endl;
-                        }                    }
+                            cout << endl << endl << endl << endl << endl << endl;
+                        }
+                    }
                 }
             }
         };
@@ -627,7 +628,7 @@ int main(int argc, char** argv){
                                     / lin_cm_to_cnts[r]);
                         } else {
                             cur_pos[a][r] = nodes[rot][r].get().Motion.PosnMeasured.Value()
-                                    / rot_rad_to_cnts[r] / deg_to_rad;
+                                    / rot_rad_to_cnts[r] / deg_to_rad + cal_rot;
                         }
                         mtr_t_last_update[a][r] = mgr.TimeStampMsec();
                     } else {
@@ -645,15 +646,12 @@ int main(int argc, char** argv){
     cout << endl;
     cout << fixed << setprecision(2);
     
-    state_t state = state_controlled_move;
+    /* state_t state = state_unknown; */
+    /* state_t state = state_controlled_move; */
     /* state_t state = state_test; */
     /* state_t state = state_defense; */
     /* state_t state = state_snake; */
-    /* mtr_cmds[lin][three_bar] = { */
-    /*     .pos = play_height / 2 - plr_offset(1, three_bar), */
-    /*     .vel = 50, */
-    /*     .accel = 500, */
-    /* }; */
+    state_t state = state_controlled_five_bar;
 
     c3b_t c3b_task = c3b_init;
     c5b_t c5b_task = c5b_init;
@@ -672,7 +670,7 @@ int main(int argc, char** argv){
     /* vector<double> cmove_target_cm = {play_height/2,6}; // y is with respect to rod */
     /* vector<double> cmove_target_tol = {2,4}; */
     /* state_t cmove_next_state = state_snake; */
-    vector<double> cmove_target_cm = {8,0}; // y is with respect to rod
+    vector<double> cmove_target_cm = {14,0}; // y is with respect to rod
     vector<double> cmove_target_tol = {2,2};
     state_t cmove_next_state = state_controlled_five_bar;
     int cmove_end_side = 1;
@@ -735,7 +733,7 @@ int main(int argc, char** argv){
         status << "Marker rotations: " << rod_pos[rot][three_bar] << ", " << rod_pos[rot][five_bar] << ", " << rod_pos[rot][two_bar] << ", " << rod_pos[rot][goalie] << endl;
         status << "State: " << state << endl;
         status << "Three bar pos: " << cur_pos[lin][three_bar] << ", rot: " << cur_pos[rot][three_bar] << endl;
-        status << "Blocked: " << is_blocked(five_bar, ball_pos_fast[0], rod_pos, 0, three_bar) << endl;
+        status << "Blocked: " << is_blocked(five_bar, 12, rod_pos, 0, three_bar) << endl;
 
         /* static int frame = 0; */
         /* status << "Frame: " << ++frame << endl; */
@@ -1354,13 +1352,21 @@ int main(int argc, char** argv){
          ******************************************************************************/
         case state_controlled_five_bar:
         {
+            static double t_wall_open = time_ms;
+            static double t_lane_open = time_ms;
+            static double t_start = time_ms;
+            static double t_human = time_ms;
+
             pair<side_t, rod_t> closest = closest_rod(ball_pos_fast[1]);
             side_t side = closest.first;
             rod_t rod = closest.second;
-            if(rod != five_bar || side != bot){
+            if((rod != five_bar || side != bot) && c5b_task != c5b_fast_5){
+                /* if(time_ms - t_human > 90){ */
+                log << "Lost from controlled five bar" << endl;
                 state = state_unknown;
                 c5b_task = c5b_init;
-            }
+                /* } */
+            } else t_human = time_ms;
 
             int plr = closest_plr(rod, ball_pos_slow[0], cur_pos[lin][rod]);
             double plr_offset_cm = plr_offset(plr, rod);
@@ -1392,7 +1398,14 @@ int main(int argc, char** argv){
             switch(c5b_task){
             case c5b_init:
             {
-                double start_cm = 8;
+                t_start = time_ms;
+
+                // TODO: temp
+                /* if( */
+                c5b_task = c5b_fast_1;
+                break;
+
+                double start_cm = 11;
                 mtr_cmds[lin][rod] = {
                     .pos = threaten_dir == 1 ? start_cm : lin_range_cm[rod] - start_cm,
                     .vel = 30,
@@ -1403,6 +1416,7 @@ int main(int argc, char** argv){
                     .vel = 4000,
                     .accel = 40'000,
                 };
+
                 tic_tac_dir = 1;
                 /* c5b_task = c5b_tic_tac; */
                 c5b_task = c5b_threaten_1;
@@ -1410,6 +1424,91 @@ int main(int argc, char** argv){
                 threaten_shake_dir = 1;
                 break;
             }
+            case c5b_fast_1:
+                mtr_cmds[lin][rod] = {5.5, 50, 500};
+                mtr_cmds[lin][three_bar] = {0.05, 150, 1500};
+                mtr_cmds[rot][three_bar] = {-40, 5000, 50000};
+                mtr_fns.push([](){
+                    nodes[rot][three_bar].get().Limits.TrqGlobal = 100;
+                });
+                c5b_task = c5b_fast_2;
+                control_task_timer = time_ms;
+                break;
+            case c5b_fast_2:
+                wait_lin{
+                    if(is_blocked(rod, ball_rad + 0.1, rod_pos, 0.1, three_bar)){
+                        t_wall_open = time_ms;
+                    }
+                    if(is_blocked(rod, 12, rod_pos, 1, three_bar)){
+                        t_lane_open = time_ms;
+                    }
+                    double t_thresh = 3*(1-(time_ms - t_start)/10'000)*1000 + (rand()%1000-200);
+                    if((time_ms - t_wall_open) > t_thresh){
+                    /* if(true){ */
+                        mtr_cmds[lin][rod] = {0, 200, 2000};
+                        c5b_task = c5b_fast_wall_3;
+                        control_task_timer = time_ms;
+                    } else if((time_ms - t_lane_open) > t_thresh){
+                    /* } else if(true){ */
+                        mtr_cmds[lin][rod] = {0.5, 50, 500};
+                        mtr_cmds[lin][three_bar] = {10-plr_offset(0, rod), 120, 1500};
+                        mtr_cmds[rot][three_bar] = {-47, 5000, 50000};
+                        c5b_task = c5b_fast_lane_3;
+                        control_task_timer = time_ms;
+                    }
+                }
+                break;
+            case c5b_fast_wall_3:
+                wait_time(70){
+                    mtr_cmds[rot][rod] = {60, 10000, 100000};
+                    c5b_task = c5b_fast_wall_4;
+                    control_task_timer = time_ms;
+                }
+                break;
+            case c5b_fast_wall_4:
+                wait_time(50){
+                    mtr_cmds[rot][rod] = {-90, 4000, 40000};
+                    mtr_cmds[rot][three_bar] = {-50, 50, 1000};
+                    c5b_task = c5b_fast_5;
+                    control_task_timer = time_ms;
+                }
+                break;
+            case c5b_fast_lane_3:
+                wait_time(90){
+                    mtr_cmds[rot][rod] = {60, 10000, 100000};
+                    mtr_cmds[lin][rod] = {13.5-plr_offset(0, rod), 150, 1500};
+                    c5b_task = c5b_fast_lane_4;
+                    control_task_timer = time_ms;
+                }
+                break;
+            case c5b_fast_lane_4:
+                wait_time(70){
+                    mtr_cmds[rot][rod] = {-90, 4000, 40000};
+                    c5b_task = c5b_fast_5;
+                    control_task_timer = time_ms;
+                }
+                break;
+            case c5b_fast_5:
+                // Only adjust if lane pass
+                if(time_ms - mtr_t_last_cmd[lin][three_bar] > 5 && mtr_last_cmd[lin][rod].pos > 0.5){
+                    mtr_cmds[lin][three_bar] = {
+                        .pos = clamp(ball_pos_fast[0] - plr_offset(0, three_bar), 0.0, lin_range_cm[rod]),
+                        .vel = 300,
+                        .accel = 3000,
+                    };
+                }
+                wait_time(300){
+                    mtr_cmds[rot][three_bar] = {-60, 1000, 10000};
+                    c5b_task = c5b_fast_6;
+                    control_task_timer = time_ms;
+                    mtr_fns.push([](){
+                        nodes[rot][three_bar].get().Limits.TrqGlobal = 100;
+                    });
+                }
+                break;
+            case c5b_fast_6:
+
+                break;
             case c5b_tic_tac:
             {
                 /* double tol = 2; */
@@ -1452,7 +1551,7 @@ int main(int argc, char** argv){
                         .accel = 40'000,
                     };
                     mtr_cmds[rot][three_bar] = {
-                        .pos = -47,
+                        .pos = -49.5,
                         .vel = 4000,
                         .accel = 40'000,
                     };
@@ -1464,14 +1563,14 @@ int main(int argc, char** argv){
             {
                 wait_lin{
                     threaten_shake_dir = cur_pos[lin][rod] > (left_cm + right_cm)/2 ? -1 : 1;
-                    /* log << threaten_dir << endl; */
+                    log << threaten_dir << endl;
                     mtr_cmds[lin][rod] = {
                         .pos = threaten_shake_dir == 1 ? lin_range_cm[rod]-4 : 4,
                         .vel = 10,
                         .accel = 300,
                     };
                 }
-                wait_time(400){
+                wait_time(300){
 
                     double ball_cm = ball_pos_fast[0] + 1.75*threaten_dir;
                     int plr_five_bar = closest_plr(five_bar, ball_cm, cur_pos[lin][three_bar]);
@@ -1488,7 +1587,7 @@ int main(int argc, char** argv){
                             .accel = 100'000,
                         };
                         c5b_task = c5b_idle;
-                        log << "Fast shot!" << endl;
+                        log << "Pass shot" << endl;
                     }else if(!is_blocked(rod, ball_cm, rod_pos, 2, three_bar) && abs(cur_pos[lin][rod] + plr_offset_cm - ball_cm) < 4){
                         mtr_cmds[lin][rod] = {
                             .pos = ball_cm - plr_offset(plr_five_bar, five_bar),
@@ -1497,12 +1596,13 @@ int main(int argc, char** argv){
                         };
                         mtr_cmds[lin][three_bar] = {
                             .pos = ball_cm + 1*threaten_dir - plr_offset(plr_three_bar, three_bar),
-                            .vel = 150,
+                            .vel = 200,
                             .accel = 2000,
                         };
                         c5b_task = c5b_threaten_3;
                         control_task_timer = time_ms;
                         pass_cm = ball_cm;
+                        log << "Pass" << endl;
                     }else if(time_ms - mtr_t_last_cmd[lin][rod] > 50){
                         /* mtr_cmds[lin][rod] = { */
                         /*     .pos = ball_cm - plr_offset_cm, */
@@ -1557,8 +1657,8 @@ int main(int argc, char** argv){
                     /* double target_cm = kin_ball_dist(ball_pos_fast, ball_vel, rod_coord[three_bar]); */
                     mtr_cmds[lin][three_bar] = {
                         .pos = ball_pos_fast[0] - plr_offset(plr_three_bar, three_bar),
-                        .vel = 200,
-                        .accel = 2000,
+                        .vel = 300,
+                        .accel = 3000,
                     };
                 }
                 wait_time(500){
@@ -1593,8 +1693,7 @@ int main(int argc, char** argv){
             int cls_plr = closest_plr(rod, ball_pos_slow[0], cur_pos[lin][rod]);
             double cls_plr_offset_cm = plr_offset(cls_plr, rod);
 
-            double offset_map[num_rod_t] = {-1, -3, -1, -1};
-            double ball_deg = atan((rod_coord[rod] - ball_pos_fast[1]) / (plr_height+plr_levitate-ball_rad/2)) / deg_to_rad+offset_map[rod];
+            double ball_deg = atan((rod_coord[rod] - ball_pos_fast[1]) / (plr_height+plr_levitate-ball_rad/2)) / deg_to_rad-5;
 
             double pin_setup = cmove_target_cm[1] >= 5;
 
@@ -1650,7 +1749,7 @@ int main(int argc, char** argv){
                     cmove_task = cmove_unstuck_1;
                 } else if(pin_setup && abs(cmove_target_cm[0] - ball_pos_fast[0]) < cmove_target_tol[0]){ // Set up pin shot
                     cmove_task = cmove_pin_1;
-                } else if(abs(ball_pos_fast[0]-cmove_target_cm[0]) > (rod == five_bar ? 2 : 10)){// && rod == five_bar){
+                } else if(abs(ball_pos_fast[0]-cmove_target_cm[0]) > (rod == five_bar ? 8 : 10)){// && rod == five_bar){
                     next_task = cmove_tap_1;
                     cmove_task = cmove_side_1;
                 } else {
@@ -1685,6 +1784,7 @@ int main(int argc, char** argv){
                             .accel = 500,
                         };
                         cmove_task = cmove_side_3;
+                        control_task_timer = time_ms;
                     }
                 }
                 break;
@@ -1696,11 +1796,13 @@ int main(int argc, char** argv){
                         .accel = 1000,
                     };
                     cmove_task = cmove_side_4;
+                    control_task_timer = time_ms;
                 }
                 break;
             case cmove_side_4:
                 wait_rot{
                     cmove_task = next_task;
+                    control_task_timer = time_ms;
                 }
                 break;
             case cmove_tap_1: // tap
@@ -2109,7 +2211,7 @@ int main(int argc, char** argv){
                 }
 
                 if(abs(cur_pos[lin][rod]+plr_offset_cm - ball_pos_fast[0]) < 0.5 && time_ms - t_start > 100){
-                /* if(time_ms - t_start > 500){ */
+                /* if(false){ */
                     const double move_cm = 6;
                     bool left_open = !is_blocked(rod, ball_pos_fast[0]-move_cm, rod_pos, 0.3);
                     bool right_open = !is_blocked(rod, ball_pos_fast[0]+move_cm, rod_pos, 0.3);
@@ -2133,7 +2235,7 @@ int main(int argc, char** argv){
                 }
 
                 mtr_cmds[rot][rod] = {
-                    .pos = -53.5,
+                    .pos = -51.5,
                     .vel = 100,
                     .accel = 1000,
                 };
@@ -2176,6 +2278,7 @@ int main(int argc, char** argv){
             break;
         case state_unknown:
             status << is_blocked(three_bar, ball_pos_fast[0]-6, rod_pos, 0.3) << ", " << is_blocked(three_bar, ball_pos_fast[0], rod_pos, 0.1) << ", " << is_blocked(three_bar, ball_pos_fast[0]+6, rod_pos, 0.3) << endl;
+
             break;
         default:
             break;

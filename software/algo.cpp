@@ -90,7 +90,7 @@ pair<side_t, rod_t> closest_rod(double ball_cm){
 }
 
 bool is_blocked(int start_rod, double ball_cm, double rod_pos[num_axis_t][num_rod_t], double tol, int end_rod){
-    if(ball_cm < play_height/2 - goal_width/2 || ball_cm > play_height/2 + goal_width/2)
+    if((ball_cm < play_height/2 - goal_width/2 || ball_cm > play_height/2 + goal_width/2) && end_rod < 0)
         return true;
     int r = goalie;
     while(-rod_coord[r] > rod_coord[start_rod]){
