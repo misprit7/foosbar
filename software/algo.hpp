@@ -55,6 +55,7 @@ typedef enum c5b_t {
     c5b_threaten_2,
     c5b_threaten_3,
     c5b_threaten_4,
+    c5b_threaten_5,
     c5b_fast_1,
     c5b_fast_2,
     c5b_fast_wall_3,
