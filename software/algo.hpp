@@ -50,7 +50,6 @@ typedef enum c3b_t {
 // Controlled 5 bar
 typedef enum c5b_t {
     c5b_init,
-    c5b_tic_tac,
     c5b_threaten_1,
     c5b_threaten_2,
     c5b_threaten_3,
@@ -75,6 +74,10 @@ typedef enum cmove_t {
     cmove_side_2,
     cmove_side_3,
     cmove_side_4,
+    cmove_top_1, // Go on top of ball
+    cmove_top_2,
+    cmove_top_3,
+    cmove_top_4,
     cmove_tap_1, // Tap ball sideways and catch it
     cmove_tap_2,
     cmove_tap_3,
@@ -84,16 +87,14 @@ typedef enum cmove_t {
     cmove_unstuck_1, // Get unstuck by gripping the ball
     cmove_unstuck_2,
     cmove_unstuck_3,
-    cmove_unstuck_4,
-    cmove_unstuck_5,
     cmove_bounce_1, // Bounce ball away from edge
     cmove_bounce_2,
     cmove_bounce_3,
     cmove_bounce_4,
-    cmove_give_up_1,
+    cmove_give_up_1, // Give up trying to control ball, just shoot randomly
     cmove_give_up_2,
     cmove_give_up_3,
-    cmove_pin_1,
+    cmove_pin_1, // Set up a pin for a snake shot
     cmove_pin_2,
     cmove_pin_3,
     cmove_pin_4,
