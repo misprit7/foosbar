@@ -127,6 +127,7 @@ const double ball_rad = 3.475/2;
 const double cal_offset[3] = {-4.3, -0.65, 2.1};
 const double cal_rot = -114;
 const int vision_fps = 200;
+const double rod_offsets[num_rod_t] = {0.5, 0.5, 0.25, 0};
 
 /******************************************************************************
  * Motor Parameters

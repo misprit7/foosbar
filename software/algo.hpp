@@ -24,28 +24,6 @@ typedef enum state_t {
     num_state_t
 } state_t;
 
-// Controlled 3 bar
-typedef enum c3b_t {
-    c3b_init,
-    c3b_raise,
-    c3b_move_lateral,
-    c3b_lower,
-    c3b_push,
-    c3b_shoot_wait,
-    c3b_shoot_straight,
-    c3b_shoot_straight_2,
-    c3b_shoot_middle,
-    c3b_shoot_middle_2,
-    c3b_shoot_end,
-    c3b_shoot_end_2,
-    c3b_shoot_end_3,
-    c3b_shoot_end_slow,
-    c3b_shoot_end_slow_2,
-    c3b_shoot_end_slow_3,
-    c3b_adjust_move,
-    c3b_adjust_down,
-    c3b_idle,
-} c3b_t;
 
 // Controlled 5 bar
 typedef enum c5b_t {
@@ -78,6 +56,8 @@ typedef enum cmove_t {
     cmove_top_2,
     cmove_top_3,
     cmove_top_4,
+    cmove_angle_1,
+    cmove_angle_2,
     cmove_tap_1, // Tap ball sideways and catch it
     cmove_tap_2,
     cmove_tap_3,
@@ -100,6 +80,9 @@ typedef enum cmove_t {
     cmove_pin_4,
     cmove_pin_5,
     cmove_pin_6,
+    cmove_goalie_1,
+    cmove_goalie_2,
+    cmove_goalie_3,
     cmove_idle,
 } cmove_t;
 
