@@ -655,8 +655,8 @@ int main(int argc, char** argv){
     
     /* state_t state = state_unknown; */
     /* state_t state = state_controlled_move; */
-    state_t state = state_uncontrolled;
-    /* state_t state = state_defense; */
+    /* state_t state = state_uncontrolled; */
+    state_t state = state_defense;
     /* state_t state = state_snake; */
     /* state_t state = state_controlled_five_bar; */
 
@@ -797,6 +797,75 @@ int main(int argc, char** argv){
             /* ball_vel = {20,-200,0}; */
             double cooldown_time = 25;
 
+            double offset_goalie = plr_offset(1, goalie);
+            double offset_two_bar = plr_offset(0, two_bar);
+            if(front == two_bar){
+                static int dir = 1; // Side that goalie is from two_bar
+                double target_cm = ball_pos_fast[0];
+
+                if(abs(ball_pos_fast[0] - play_height/2) > goal_width/2){
+                    int side = ball_pos_fast[0] > play_height/2 ? 1 : -1;
+                    double target_cm = play_height/2 + side*5;
+                    mtr_cmds[lin][two_bar] = {target_cm - offset_two_bar, 100, 1000};
+                    mtr_cmds[lin][goalie] = {side == 1 ? lin_range_cm[goalie] : 0, 100, 1000};
+                    mtr_cmds[rot][two_bar] = {25, 4000, 40000};
+                    mtr_cmds[rot][goalie] = {-25, 4000, 40000};
+                } else if(ball_pos_fast[1] - (-rod_coord[three_bar]) < -3 && abs(ball_vel[0]) < 50){
+                    // Snake
+                    mtr_cmds[rot][two_bar] = {-25, 4000, 40000};
+                    mtr_cmds[rot][goalie] = {-25, 4000, 40000};
+
+                    double target_two_bar = ball_pos_fast[0] - dir * 2 - offset_two_bar;
+                    if(time_ms - mtr_t_last_cmd[lin][two_bar] > 20 && abs(target_two_bar - mtr_last_cmd[lin][two_bar].pos) > 0.5){
+                        mtr_cmds[lin][two_bar] = {target_two_bar, 100, 1000};
+                    }
+                    double target_goalie = ball_pos_fast[0] + dir * 3 - offset_goalie;
+                    if(time_ms - mtr_t_last_cmd[lin][goalie] > 20 && abs(target_goalie - mtr_last_cmd[lin][goalie].pos) > 0.5){
+                        mtr_cmds[lin][goalie] = {target_goalie, 100, 1000};
+                    }
+                } else if(abs(ball_pos_fast[0] - play_height/2) > 6 && abs(ball_pos_fast[0] - play_height/2) < 10){
+                    // Pull/push shot
+                    mtr_cmds[rot][two_bar] = {-25, 4000, 40000};
+                    mtr_cmds[rot][goalie] = {-25, 4000, 40000};
+
+                    static bool far = false;
+                    static double t_pos_change = time_ms;
+
+                    const int exp_t_move = 1000;
+
+                    if(rand()%exp_t_move <= dt_ms){
+                        far = !far;
+                    }
+
+                    int side = ball_pos_fast[0] > play_height/2 ? 1 : -1;
+                    double target_two_bar = ball_pos_fast[0] - side*1 - offset_two_bar;
+                    if(time_ms - mtr_t_last_cmd[lin][two_bar] > 40 && abs(target_two_bar - mtr_last_cmd[lin][two_bar].pos) > 0.5){
+                        mtr_cmds[lin][two_bar] = {target_two_bar, 100, 500};
+                    }
+                    double target_goalie = ball_pos_fast[0] - side*(far ? 11 : 8) - offset_goalie;
+                    if(time_ms - mtr_t_last_cmd[lin][goalie] > 40 && abs(target_goalie - mtr_last_cmd[lin][goalie].pos) > 0.5){
+                        mtr_cmds[lin][goalie] = {target_goalie, 100, 500};
+                    }
+                } else {
+                    mtr_cmds[rot][two_bar] = {-25, 4000, 40000};
+                    mtr_cmds[rot][goalie] = {-25, 4000, 40000};
+
+                    double target_two_bar = ball_pos_fast[0] - dir * 2 - offset_two_bar;
+                    if(time_ms - mtr_t_last_cmd[lin][two_bar] > 20 && abs(target_two_bar - mtr_last_cmd[lin][two_bar].pos) > 0.5){
+                        mtr_cmds[lin][two_bar] = {target_two_bar, 100, 1000};
+                    }
+                    double target_goalie = ball_pos_fast[0] + dir * 3 - offset_goalie;
+                    if(time_ms - mtr_t_last_cmd[lin][goalie] > 20 && abs(target_goalie - mtr_last_cmd[lin][goalie].pos) > 0.5){
+                        mtr_cmds[lin][goalie] = {target_goalie, 100, 1000};
+                    }
+                } 
+            } else if (front == two_bar){
+                mtr_cmds[lin][two_bar] = {ball_pos_fast[0] - offset_two_bar, 100, 1000};
+                mtr_cmds[lin][goalie] = {ball_pos_fast[0] - offset_goalie, 100, 1000};
+            }
+
+            break;
+
             for(int i = 0; i + front < num_rod_t; ++i){
                 int rod = i + front;
 
@@ -913,7 +982,14 @@ int main(int argc, char** argv){
             }
             int rod = closest.second;
 
-            int dir = ball_pos_fast[1]-rod_coord[rod] > 0 ? -1 : 1;
+            double dy = ball_pos_fast[1]-rod_coord[rod];
+            int dir = dy > 0 ? -1 : 1;
+            /* if(abs(dy) > 6){ */
+            /*     dir *= -1; */
+            /* } */
+            /* if(abs(ball_vel[1]) > 5){ */
+            /*     dir = ball_vel[1] > 0 ? -1 : 1; */
+            /* } */
 
             double catch_angle = 45;
 
