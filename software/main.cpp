@@ -77,6 +77,7 @@ void onHighVChange(int, void*) {}
 
 
 void move_lin(int rod, double position_cm){
+    if(rod == three_bar) return;
     int target_cnts = clamp(
             (int)(-lin_cm_to_cnts[rod] * position_cm),
             min(lin_range_cnts[rod][0], lin_range_cnts[rod][1]),
@@ -286,7 +287,6 @@ void print_status(string status, string log = "", bool erase = true){
         for(char c : status)
             if(c == '\n')
                 cout << "\033[A\33[2K\r";
-    cout << log;
     cout << status;
 }
 
@@ -511,10 +511,17 @@ int main(int argc, char** argv){
                         pos[j] += pos_buffer[i].second[j] * scale_pos;
                     }
                 }
-                ball_in_motion = !(abs(pos_buffer[0].second[0] - pos_buffer[vision_fps/2].second[0]) < 0.5
-                    && abs(pos_buffer[0].second[1] - pos_buffer[vision_fps/2].second[1]) < 0.5) ||
-                    !(abs(pos_buffer[1].second[0] - pos_buffer[vision_fps/2+1].second[0]) < 0.5
-                    && abs(pos_buffer[1].second[1] - pos_buffer[vision_fps/2+1].second[1]) < 0.5);
+
+                double max[2] = {0,-play_width/2}, min[2] = {play_height, play_width/2};
+                for(int i = 0; i < vision_fps/3; ++i){
+                    for(int j = 0; j < 2; ++j){
+                        if(pos_buffer[i].second[j] > max[j]) max[j] = pos_buffer[i].second[j];
+                        if(pos_buffer[i].second[j] < min[j]) min[j] = pos_buffer[i].second[j];
+                    }
+                }
+                ball_in_motion = max[0] - min[0] > 1 || max[1] - min[1] > 1;
+                /* cout << max[0] - min[0] << ", "  << max[1] - min[1] << endl; */
+
                 for(int j = 0; j < 3; ++j){
                     ball_vel[j] = vel[j] / denom_vel;
                     ball_pos_slow[j] = pos[j] / denom_pos;
@@ -654,9 +661,9 @@ int main(int argc, char** argv){
     cout << fixed << setprecision(2);
     
     /* state_t state = state_unknown; */
-    state_t state = state_controlled_move;
+    /* state_t state = state_controlled_move; */
     /* state_t state = state_uncontrolled; */
-    /* state_t state = state_defense; */
+    state_t state = state_defense;
     /* state_t state = state_snake; */
     /* state_t state = state_controlled_five_bar; */
 
@@ -732,7 +739,7 @@ int main(int argc, char** argv){
             }}
         };
         status << fixed << setprecision(3) << setw(10) << showpos;
-        status << "Ball position fast: " << ball_pos_fast[0] << ", " << ball_pos_fast[1] << ", " << ball_pos_fast[2] << "; ";
+        status << "Ball position fast: " << ball_pos_fast[0] << ", " << ball_pos_fast[1] << ", " << ball_pos_fast[2] << "; " << endl;;
         status << "Ball position slow: " << ball_pos_slow[0] << ", " << ball_pos_slow[1] << ", " << ball_pos_slow[2] << "; ";
         status << "Ball velocity: " << ball_vel[0] << ", " << ball_vel[1] << ", " << ball_vel[2] << endl;
         status << "Marker positions: " << rod_pos[lin][three_bar] << ", " << rod_pos[lin][five_bar] << ", " << rod_pos[lin][two_bar] << ", " << rod_pos[lin][goalie] << "; ";
@@ -787,7 +794,11 @@ int main(int argc, char** argv){
             int front;
             pair<side_t, rod_t> closest = closest_rod(ball_pos_fast[1]);
             if(closest.first == bot){
-                state = state_shot_defense;
+                if(ball_vel[1] < -20){
+                    state = state_shot_defense;
+                } else{
+                    state = state_uncontrolled;
+                }
                 break;
             }
             if(closest.second == three_bar) front = two_bar;
@@ -807,6 +818,8 @@ int main(int argc, char** argv){
                 }
             };
 
+            const double catch_angle = 30;
+
             if(front == two_bar){
                 static int dir = 1; // Side that goalie is from two_bar
                 double target_cm = ball_pos_fast[0];
@@ -820,16 +833,16 @@ int main(int argc, char** argv){
                     mtr_cmds[rot][goalie] = {-25, 4000, 40000};
                 } else if(ball_pos_fast[1] - (-rod_coord[three_bar]) < -3 && abs(ball_vel[0]) < 50){
                     // Snake
-                    mtr_cmds[rot][two_bar] = {-25, 4000, 40000};
-                    mtr_cmds[rot][goalie] = {-25, 4000, 40000};
+                    mtr_cmds[rot][two_bar] = {catch_angle, 4000, 40000};
+                    mtr_cmds[rot][goalie] = {catch_angle, 4000, 40000};
 
                     move_motor(ball_pos_fast[0] - dir*2, 100, 1000, 0, two_bar, 20, 0.5);
                     move_motor(ball_pos_fast[0] + dir*3, 100, 1000, 1, goalie, 20, 0.5);
 
                 } else if(abs(ball_pos_fast[0] - play_height/2) > 6 && abs(ball_pos_fast[0] - play_height/2) < 10){
                     // Pull/push shot
-                    mtr_cmds[rot][two_bar] = {-25, 4000, 40000};
-                    mtr_cmds[rot][goalie] = {-25, 4000, 40000};
+                    mtr_cmds[rot][two_bar] = {catch_angle, 4000, 40000};
+                    mtr_cmds[rot][goalie] = {catch_angle, 4000, 40000};
 
                     static bool far = false;
                     static double t_pos_change = time_ms;
@@ -843,16 +856,16 @@ int main(int argc, char** argv){
                     move_motor(ball_pos_fast[0] - side*1, 100, 500, 0, two_bar, 20, 0.5);
                     move_motor(ball_pos_fast[0] - side*(far ? 11 : 8), 100, 500, 1, goalie, 20, 0.5);
                 } else {
-                    mtr_cmds[rot][two_bar] = {-25, 4000, 40000};
-                    mtr_cmds[rot][goalie] = {-25, 4000, 40000};
+                    mtr_cmds[rot][two_bar] = {catch_angle, 4000, 40000};
+                    mtr_cmds[rot][goalie] = {catch_angle, 4000, 40000};
 
                     move_motor(ball_pos_fast[0] - dir*2, 100, 1000, 0, two_bar, 20, 0.5);
                     move_motor(ball_pos_fast[0] + dir*3, 100, 1000, 1, goalie, 20, 0.5);
                 } 
             }
             if(front == five_bar || front == three_bar){
-                mtr_cmds[rot][two_bar] = {25, 4000, 40000};
-                mtr_cmds[rot][goalie] = {-25, 4000, 40000};
+                mtr_cmds[rot][two_bar] = {catch_angle, 4000, 40000};
+                mtr_cmds[rot][goalie] = {catch_angle, 4000, 40000};
                 if(ball_pos_fast[0] < play_height/2){
                     mtr_cmds[lin][two_bar] = {27.5, 100, 300};
                     mtr_cmds[lin][goalie] = {2.5, 100, 300};
@@ -894,8 +907,13 @@ int main(int argc, char** argv){
         }
         case state_shot_defense:
         {
+            pair<side_t, rod_t> closest = closest_rod(ball_pos_fast[1]);
             if(abs(ball_vel[1]) < 10){
-                state = state_defense;
+                if(closest.first == human){
+                    state = state_defense;
+                } else {
+                    state = state_uncontrolled;
+                }
                 break;
             }
             for(int r = 0; r < num_rod_t; ++r){
@@ -928,10 +946,19 @@ int main(int argc, char** argv){
         {
             pair<side_t, rod_t> closest = closest_rod(ball_pos_fast[1]);
             if(closest.first != bot){
-                /* state = state_defense; */
+                state = state_defense;
                 break;
+            } else if(!ball_in_motion){
+                state = state_controlled_move;
             }
             int rod = closest.second;
+            int plr = closest_plr(rod, ball_pos_fast[0], cur_pos[lin][rod]);
+            mtr_cmds[rot][rod] = {35, 5'000, 50'000};
+
+            if(time_ms - mtr_t_last_cmd[lin][rod] > 40){
+                mtr_cmds[lin][rod] = {ball_pos_fast[0] - plr_offset(plr, rod), 100, 1000};
+            }
+            break;
 
             double dy = ball_pos_fast[1]-rod_coord[rod];
             int dir = dy > 0 ? -1 : 1;
@@ -944,7 +971,6 @@ int main(int argc, char** argv){
 
             double catch_angle = 45;
 
-            int plr = closest_plr(rod, ball_pos_fast[0], cur_pos[lin][rod]);
 
             if(abs(cur_pos[rot][rod] - dir*catch_angle) < 2){
                 status << "1" << endl;
@@ -982,10 +1008,10 @@ int main(int argc, char** argv){
             pair<side_t, rod_t> closest = closest_rod(ball_pos_fast[1]);
             side_t side = closest.first;
             rod_t rod = closest.second;
-            if(side != bot && c5b_task != c5b_fast_5 && c5b_task != c5b_threaten_5){
+            if(side == human && c5b_task != c5b_fast_5 && c5b_task != c5b_threaten_5){
                 /* if(time_ms - t_human > 90){ */
                 log << "Lost from pass" << endl;
-                state = state_unknown;
+                state = state_defense;
                 c5b_task = c5b_init;
                 /* } */
             } else t_human = time_ms;
@@ -1018,15 +1044,14 @@ int main(int argc, char** argv){
             {
                 t_start = time_ms;
 
-                // TODO: temp
-                /* if( */
                 if(rod == two_bar){
                     c5b_task = c5b_threaten_1;
                 } else if(rod == five_bar){
                     c5b_task = c5b_fast_1;
                 } else {
-                    log << "Attempting to pass from wrong rod, aborting..." << endl;
-                    state = state_unknown;
+                    log << "Attempting to pass from wrong rod" << endl;
+                    c5b_task = c5b_init;
+                    state = state_controlled_move;
                 }
                 break;
             }
@@ -1312,6 +1337,7 @@ int main(int argc, char** argv){
             static cmove_t next_task = cmove_adjust_1;
             static int plr = 0;
             static bool end_side = false; // whether we've ended on the desired side
+            static int cur_rod = goalie;
             
             // These are so we don't actually leave the motors in lower torque
             static vector<function<void(void)>> leave_fns;
@@ -1321,10 +1347,13 @@ int main(int argc, char** argv){
             /* break; */
 
             if(side != bot){
-                state = state_unknown;
+                state = state_defense;
                 cmove_task = cmove_init;
                 for(auto fn : leave_fns) fn();
                 log << "Went to human" << endl;
+                break;
+            } else if(rod != cur_rod){
+                cmove_task = cmove_init;
             }
 
             switch(cmove_task){
@@ -1333,6 +1362,7 @@ int main(int argc, char** argv){
                 cmove_task = cmove_decide_1;
                 control_task_timer = time_ms;
                 end_side = false;
+                cur_rod = rod;
                 if(rod == three_bar){
                     cmove_target_cm = {play_height/2,5.5};
                     cmove_target_tol = {2,2};
@@ -1358,7 +1388,8 @@ int main(int argc, char** argv){
             }
             case cmove_decide_1:
                 wait_time(300){
-                    if(ball_in_motion == false){
+                    /* if(ball_in_motion == false){ */
+                    if(!ball_in_motion){
                         cmove_task = cmove_decide_2;
                     }
                 }
@@ -1372,7 +1403,8 @@ int main(int argc, char** argv){
                 // Decide next action based on current state
                 if(rod != goalie && abs(ball_pos[0] - cmove_target_cm[0]) < cmove_target_tol[0] && abs(ball_pos[1] - rod_coord[rod] - cmove_target_cm[1]) < cmove_target_tol[1]){
                     // Pin shots need to be setup up with pin even if they happen to get in position, since the player has to be on top
-                    if(pin_setup && !(cur_pos[rot][rod] >= 45 && cur_pos[rot][rod] <= 55)){
+                    if(pin_setup && !(cur_pos[rot][rod] <= -40 && cur_pos[rot][rod] >= -65)){
+                        log << "Doing pin " << cur_pos[rot][rod] << endl;
                         cmove_task = cmove_pin_1;
                         break;
                     }
@@ -1383,13 +1415,14 @@ int main(int argc, char** argv){
                         end_side = true;
                         break;
                     }
-                    log << "Move reached target" << endl;
+                    log << "Move reached target, going to " << cmove_next_state << endl;
                     state = cmove_next_state;
                     cmove_task = cmove_init;
                     for(auto fn : leave_fns) fn();
                     break;
                 }
 
+                end_side = false;
                 target_side = ball_pos[0] <= cmove_target_cm[0] ? 1 : -1;
                 double edge_dist = bumper_width + plr_width+1;
                 if(ball_pos[0] <= edge_dist || ball_pos_fast[0] >= play_height-edge_dist){
@@ -1899,9 +1932,20 @@ int main(int argc, char** argv){
             static double t_right_open = time_ms;
 
             const int rod = three_bar;
+
+            pair<side_t, rod_t> closest = closest_rod(ball_pos_fast[1]);
+            if(closest.first == human && time_ms - t_shot > 300){
+                state = state_shot_defense;
+                log << "Lost ball from snake " << time_ms - t_shot << endl;
+                mtr_fns.push([](){
+                    nodes[rot][rod].get().Limits.TrqGlobal = 100;
+                });
+                csnake_task = csnake_init;
+                break;
+            }
+
             double plr_offset_cm = plr_offset(1, rod);
             /* if(ball_pos_fast[0] == 0) ball_pos_fast[0] = play_height/2; */
-
 
             switch(csnake_task){
             case csnake_init:
@@ -1932,20 +1976,21 @@ int main(int argc, char** argv){
                         .vel = 20000,
                         .accel = 200000,
                     };
+                    t_shot = time_ms;
                     log << "Snake straight shot" << endl;
                     csnake_task = csnake_init;
                     state = state_unknown;
                     break;
                 }
 
-                if(abs(cur_pos[lin][rod]+plr_offset_cm - ball_pos_fast[0]) < 0.5 && time_ms - t_start > 100){
+                if(abs(cur_pos[lin][rod]+plr_offset_cm - ball_pos_fast[0]) < 0.5 && time_ms - t_start > 400){
                 /* if(false){ */
                     const double move_cm = 5.5;
                     bool left_open = !is_blocked(rod, ball_pos_fast[0]-move_cm, rod_pos, 0.1);
                     bool right_open = !is_blocked(rod, ball_pos_fast[0]+move_cm, rod_pos, 0.1);
                     if(!left_open) t_left_open = time_ms;
                     if(!right_open) t_right_open = time_ms;
-                    double t_thresh = (1-(time_ms - t_start)/15000)*1000;
+                    double t_thresh = (1-(time_ms - t_start)/15000)*1500;
                     if((left_open && time_ms - t_left_open > t_thresh) || (right_open && time_ms - t_right_open > t_thresh)){
                         mtr_cmds[lin][rod] = {
                             .pos = ball_pos_fast[0] + move_cm*((left_open && time_ms - t_left_open > t_thresh)?-1:1) - plr_offset_cm,
@@ -1963,7 +2008,7 @@ int main(int argc, char** argv){
                 }
 
                 mtr_cmds[rot][rod] = {
-                    .pos = -52.5,
+                    .pos = -52.1,
                     .vel = 100,
                     .accel = 1000,
                 };
@@ -1981,15 +2026,17 @@ int main(int argc, char** argv){
             case csnake_shoot:
                 /* if((abs(ball_pos_fast[0] - (mtr_last_cmd[lin][rod].pos + plr_offset_cm)) < 0.5 && time_ms - t_shot > 20) */
                 /*         || time_ms - t_shot > 1000){ */
-                if(time_ms - t_shot > 75){
+                if(time_ms - t_shot > 60){
                     mtr_cmds[rot][rod] = {
                         .pos = -450,
                         .vel = 20000,
                         .accel = 200000,
                     };
                     log << "Snake moving shot" << endl;
+                }
+                if(time_ms - t_shot > 200){
                     csnake_task = csnake_init;
-                    state = state_unknown;
+                    state = state_defense;
                 }
                 break;
             }
@@ -2012,10 +2059,7 @@ int main(int argc, char** argv){
             break;
         }
 
-        /* status << cur_pos[lin][three_bar] << ", " << cur_pos[lin][goalie] << endl; */
         print_status(status.str(), log.str(), true);
-        /* log << ball_pos_lcl[0] << ", " << ball_pos_lcl[1] << "; v: " << ball_vel_lcl[0] << ", " << ball_vel_lcl[1] << endl; */
-        /* log << time_ms - start_t << endl; */
 
         this_thread::sleep_for(chrono::microseconds(500));
     }
