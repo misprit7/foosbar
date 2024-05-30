@@ -77,7 +77,7 @@ void onHighVChange(int, void*) {}
 
 
 void move_lin(int rod, double position_cm){
-    if(rod == three_bar) return;
+    /* if(rod != three_bar) return; */
     int target_cnts = clamp(
             (int)(-lin_cm_to_cnts[rod] * position_cm),
             min(lin_range_cnts[rod][0], lin_range_cnts[rod][1]),
@@ -87,6 +87,7 @@ void move_lin(int rod, double position_cm){
 }
 
 void move_rot(int rod, double position_deg){
+    /* if(rod != three_bar) return; */
     int target_cnts = rot_deg_to_cnts[rod] * (position_deg - cal_rot);
     nodes[rot][rod].get().Motion.MovePosnStart(target_cnts, true);
 }
@@ -781,8 +782,10 @@ int main(int argc, char** argv){
                 if(tgt_rot_updated[r]){
                     mtr_cmds[rot][r] = {
                         .pos = tgt_rot[r] / deg_to_rad,
-                        .vel = in_shot ? 10000.0 : 500,
-                        .accel = in_shot ? 100000.0 : 1000,
+                        /*.vel = in_shot ? 10000.0 : 500,*/
+                        .vel = 10000.0,
+                        /*.accel = in_shot ? 100000.0 : 1000,*/
+                        .accel = 100000.0,
                     };
                 }
             }
@@ -794,6 +797,7 @@ int main(int argc, char** argv){
             int front;
             pair<side_t, rod_t> closest = closest_rod(ball_pos_fast[1]);
             if(closest.first == bot){
+                /* break; */
                 if(ball_vel[1] < -20){
                     state = state_shot_defense;
                 } else{

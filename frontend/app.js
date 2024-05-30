@@ -45,6 +45,7 @@ let ball = new THREE.Group();
 var selection = 0;
 var left_pressed = false, right_pressed = false;
 var rot_up_pressed = false, rot_down_pressed = false;
+var in_shot = false, up_dpad = false, down_dpad = false;
 
 // Gamepad
 var dpad_y_last = 0;
@@ -88,9 +89,9 @@ loader.load('assets/table.glb', function(gltf) {
  * Set up websocket
  ******************************************************************************/
 
-const ws = new WebSocket('ws://localhost:9001/position');
+//const ws = new WebSocket('ws://localhost:9001/position');
 // const ws = new WebSocket('ws://75.157.213.247:9001/position');
-// const ws = new WebSocket('ws://192.168.1.77:9001/position');
+ const ws = new WebSocket('ws://192.168.1.77:9001/position');
 
 // Should probably be a callback when ws connects
 setTimeout(function() {
@@ -230,7 +231,7 @@ function animate() {
         outlinePass.selectedObjects = [rod];
 
         const lin_speed = 0.10;
-        const rot_speed = 0.10;
+        const rot_speed = 0.50;
 
         let dz = 0, drot = 0;
         if(gamepads.length > 0){
@@ -239,18 +240,40 @@ function animate() {
             const joystickLeftY = gamepad.axes[1];
             const joystickRightX = gamepad.axes[2];
             const joystickRightY = gamepad.axes[3];
-            const leftTrigger = gamepad.buttons[7].pressed;
+            const leftTrigger = gamepad.buttons[6].pressed;
+            const rightTrigger = gamepad.buttons[7].pressed;
+            
+            if(!in_shot && rightTrigger){
+                in_shot = true;
+                drot -= Math.PI;
+            }
+            if(!rightTrigger)
+                in_shot = false;
+
 
             // console.log(gamepad.axes[5]);
-            if(gamepad.axes[5] != dpad_y_last){
-                dpad_y_last = gamepad.axes[5];
-                if(dpad_y_last != 0){
-                    change_selection(dpad_y_last > 0.5 ? 1 : -1);
-                }
+            //if(gamepad.axes[5] != dpad_y_last){
+            //    dpad_y_last = gamepad.axes[5];
+            //    if(dpad_y_last != 0){
+            //        change_selection(dpad_y_last > 0.5 ? 1 : -1);
+            //    }
+            //}
+            if(gamepad.buttons[12].pressed && !up_dpad){
+                change_selection(-1);
+                up_dpad = true;
             }
+            if(gamepad.buttons[13].pressed && !down_dpad){
+                change_selection(1);
+                down_dpad = true;
+            }
+            if(!gamepad.buttons[12].pressed)
+                up_dpad = false;
+            if(!gamepad.buttons[13].pressed)
+                down_dpad = false;
 
-            dz = lin_speed * joystickLeftX / (leftTrigger ? 4 : 1);
-            drot = rot_speed * joystickRightY / (leftTrigger ? 4 : 1);
+            dz += lin_speed * joystickLeftX / (leftTrigger ? 4 : 1);
+            drot += rot_speed * joystickRightY / (leftTrigger ? 4 : 1);
+            if(Math.abs(drot) < 0.01) drot = 0;
         } else {
             dz = (left_pressed ?- lin_speed : 0) + (right_pressed ? lin_speed : 0);
             drot = (rot_down_pressed ?- rot_speed : 0) + (rot_up_pressed ? rot_speed : 0);
