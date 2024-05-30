@@ -16,6 +16,8 @@ As a very enthusiastic foosball player, I've sunk countless hours into the game.
 
 So I did that! Foosbar is a completely autonomous foosball table that is robotically controlled on one side of the table, while a human plays on the other. It is capable of defending, passing and taking shots. It has successfully mechanized all my joy out of the game, leaving me free to pursue [more important and deeply fulfilling things](https://github.com/misprit7/computerraria) with my life.
 
+<picture><img src="./doc/img/motors.jpg"/></picture>
+
 # Setup
 
 ## Components
