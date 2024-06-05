@@ -7,7 +7,7 @@
   The (Unverifiably but Plausibly) World's Best Foosball Robot
 </h2>
 <h2 align="center">
-  Video explanation: TODO
+  Video explanation: https://www.youtube.com/watch?v=xrwXZXGiP1w
 </h2>
 
 # Pitch
