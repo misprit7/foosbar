@@ -14,5 +14,7 @@ This is the frontend web server for the Foosbar project.
 
 ## Demo
 
-![Foosbar Frontend](assets/example.png)
+[Demo Link](https://foosbar-frontend.vercel.app/)
+
+![Foosbar Frontend](./assets/demo.png)
 
