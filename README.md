@@ -55,6 +55,7 @@ pio run -t upload
 Just run
 ```
 cd frontend
-npx vite
+npm i
+npm start
 ```
 
