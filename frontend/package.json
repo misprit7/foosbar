@@ -4,16 +4,17 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "http-server . -p 8000"
+    "start": "vite",
+    "build": "vite build"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "lil-gui": "^0.19.2",
     "three": "^0.159.0"
   },
   "devDependencies": {
-    "http-server": "^14.1.1",
-    "vite": "^5.0.9"
+    "prettier": "^3.3.1",
+    "vite": "^5.2.12"
   }
 }
