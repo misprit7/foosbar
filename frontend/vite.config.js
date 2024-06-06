@@ -3,7 +3,7 @@ export default {
     publicDir: './assets/',
     server: {
         port: 8000,
-        host: true,
+        host: '0.0.0.0',
         open: !(
             'SANDBOX_URL' in process.env || 'CODESANDBOX_HOST' in process.env
         ),
